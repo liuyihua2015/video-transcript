@@ -8,15 +8,32 @@
 #   ./deploy/remote-deploy.sh update-ytdlp # 只更新通用引擎 yt-dlp 的二进制（不用重建镜像）
 #   ./deploy/remote-deploy.sh logs         # 看容器日志
 #
-# 服务器上不落地源码仓库，/opt/douyin-transcript 即发布目录。
+# 服务器上不落地源码仓库，远端 $REMOTE 目录即发布目录。
 # bin/yt-dlp 只存在于服务器（约 40MB），不参与打包上传。
+#
+# 首次使用：cp deploy/.env.local.example deploy/.env.local
+#           然后在 deploy/.env.local 里填写 DY_HOST / DY_REMOTE。
+# （该文件已被 .gitignore 排除，服务器地址等私有信息不会进版本库。）
 
 set -euo pipefail
 
-HOST="${DY_HOST:-ubuntu@122.51.1.5}"
-REMOTE="${DY_REMOTE:-/opt/douyin-transcript}"
-SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10)
 LOCAL="$(cd "$(dirname "$0")/.." && pwd)"
+ENV_LOCAL="$(cd "$(dirname "$0")" && pwd)/.env.local"
+if [ -f "$ENV_LOCAL" ]; then
+  # shellcheck disable=SC1090
+  . "$ENV_LOCAL"
+fi
+
+HOST="${DY_HOST:-}"
+REMOTE="${DY_REMOTE:-/opt/video-transcript}"
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10)
+
+if [ -z "$HOST" ]; then
+  echo "!! 未配置服务器地址，已中止。" >&2
+  echo "   请先：cp deploy/.env.local.example deploy/.env.local" >&2
+  echo "   再在 deploy/.env.local 里填 DY_HOST（形如 ubuntu@1.2.3.4）。" >&2
+  exit 1
+fi
 # 国内直连 GitHub Release 只有 20KB/s 左右（40MB 要半小时），走加速镜像；
 # 失败则回落到直连，再失败就保留现有二进制不动。
 YTDLP_MIRRORS=(
