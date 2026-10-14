@@ -104,9 +104,11 @@ cp deploy/.env.local.example deploy/.env.local   # 填 DY_HOST / DY_REMOTE（该
 - **改代码必须重启容器**：`server/`、`public/` 是只读挂载，只传文件不重启不会生效
 - **`env_file` 只在创建容器时读取**：改完 `.env` 单独 `docker restart` 拿不到新变量，必须让 compose 重建容器
 
-### 自动发布（可选）
+### 自动发布（可选，标签触发）
 
-服务器上挂一个 systemd timer，每 5 分钟拉一次本仓库，有变化就重启容器。**整条链路不需要任何密钥** —— 仓库是公开的，服务器只做只读拉取，不落私钥、也不用 GitHub Secrets。
+服务器上挂一个 systemd timer，每 5 分钟检查一次本仓库。**只有打了发布标签（`deploy-*`）的提交才会上线 —— 普通 `git push` 到 `main` 不会发布**，上线因此是一次有意识的动作，而不是每次提交的副作用。
+
+**整条链路不需要任何密钥** —— 仓库是公开的，服务器只做只读拉取，不落私钥、也不用 GitHub Secrets。
 
 ```bash
 # 一次性安装（在服务器上执行）
@@ -115,16 +117,30 @@ sudo cp /opt/video-transcript-src/deploy/systemd/*.{service,timer} /etc/systemd/
 sudo systemctl daemon-reload
 sudo systemctl enable --now video-transcript-autodeploy.timer
 
-# 手动触发一次 / 看日志
+# 手动触发一次 / 看日志 / 看当前线上版本
 sudo systemctl start video-transcript-autodeploy.service
 journalctl -u video-transcript-autodeploy -n 50
+cat /var/lib/video-transcript-autodeploy/last-good   # 第一行 = 提交 SHA，第二行 = 标签名
 ```
 
-`deploy/auto-deploy.sh` 的流程：拉取 → 比对版本（相同则静默退出）→ `rsync` 同步代码 → **在旧容器里对新代码做语法自检** → 重启容器 → 健康检查 → **失败自动回滚到上一个正常版本**。
+要发布一个新版本，在本地跑：
+
+```bash
+./deploy/release.sh                 # 自动命名 deploy-YYYYMMDD-HHMM
+./deploy/release.sh deploy-1.2.0    # 或自己起名（必须以 deploy- 开头）
+```
+
+脚本会先确认「本地 = `origin/main`」（服务器只拉得到远端已有的提交），再打 annotated tag 推上去。标签推上去后服务器几分钟内自动上线。
+
+`deploy/auto-deploy.sh` 的流程：列出远端发布标签 → **从新到旧逐个校验** → `rsync` 同步代码 → 在旧容器里对新代码做**语法自检** → 重启容器 → 健康检查 → **失败自动回滚到上一个正常版本**。
 
 几条刻意守住的安全边界：
 
-- 只同步代码，**不覆盖也不删除 `.env` 与 `bin/`**（这两样只存在于服务器）
+- **发布必须显式打标签**：没打标签的提交永远不上线，`main` 上可以放心攒改动
+- **只同步 `server/` 与 `public/`**：容器只挂载这两个目录，别的文件（`.env` / `bin/` / `deploy/` / `docker-compose.yml`）根本不在同步范围内，也就不存在「exclude 写错误删」这类问题
+- **只前进不回退**：候选版本必须是当前线上版本的后代，自动发布不会把线上退回旧提交（回退只由「失败回滚」触发）
+- **未并入主干的标签不发**：标签指向的提交必须是 `main` 的祖先
+- **失败过的版本不再重试**：回滚后记进 `last-failed`，等新标签，否则每 5 分钟撞一次同样的墙
 - 只重启本容器，**不碰 nginx、不碰同机其他项目的目录**
 - 不重建镜像，因此不会触发 apk 安装那 5–6 分钟
 - ⚠️ 脚本以 root 运行、执行的又是仓库里的代码 —— **仓库的可写权限等于本机的 root 权限**。不要给仓库加协作者，也不要在 `main` 上放开让他人直推
@@ -145,7 +161,8 @@ journalctl -u video-transcript-autodeploy -n 50
 systemctl status video-transcript-autodeploy.service    # 上次结果
 journalctl -u video-transcript-autodeploy -n 50         # 日志
 sudo systemctl start video-transcript-autodeploy.service # 手动触发
-cat /var/lib/video-transcript-autodeploy/last-good       # 当前线上版本（完整 SHA）
+cat /var/lib/video-transcript-autodeploy/last-good       # 当前线上版本（提交 SHA + 标签名）
+cat /var/lib/video-transcript-autodeploy/last-failed     # 上次发布失败、已自动回滚的版本
 ```
 
 ## 限制与已知问题

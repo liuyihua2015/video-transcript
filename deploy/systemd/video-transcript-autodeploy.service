@@ -13,6 +13,10 @@ Environment=VT_TARGET=/opt/douyin-transcript
 Environment=VT_BRANCH=main
 Environment=VT_CONTAINER=dytx-app
 Environment=VT_HEALTH_URL=http://127.0.0.1:3300/api/health
+# 发布标签制：只有打了这种标签的提交才会上线，普通 push 到 main 不会
+Environment=VT_TAG_GLOB=refs/tags/deploy-*
+# 出处校验：远端地址必须包含它，否则拒绝执行
+Environment=VT_EXPECT_REPO=liuyihua2015/video-transcript
 # 先装到 /usr/local/lib 再执行：脚本运行中会 git reset --hard 更新自己所在的
 # 检出目录，而 bash 是边读边执行的 —— 直接执行源文件会出现「执行到一半内容被
 # 换掉」。装一份出来跑，本轮用的是上一轮已校验过的版本，稳定可预期。
