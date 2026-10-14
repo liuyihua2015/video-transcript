@@ -28,7 +28,9 @@ VT_HEALTH_URL="${VT_HEALTH_URL:-http://127.0.0.1:3300/api/health}"
 VT_STATE="${VT_STATE:-/var/lib/video-transcript-autodeploy/last-good}"
 VT_LOCK="${VT_LOCK:-/var/lock/video-transcript-autodeploy.lock}"
 
-log() { echo "[$(date '+%F %T')] $*"; }
+# 日志一律写 stderr：本脚本多处用 $(...) 取返回值，混进 stdout 会污染结果
+# （踩过一次：日志文本被当成 URL 传给 git fetch）
+log() { echo "[$(date '+%F %T')] $*" >&2; }
 die() { log "$*"; exit 1; }
 
 # ---- 单实例：上一轮没跑完就跳过这一轮 ----
@@ -36,26 +38,52 @@ mkdir -p "$(dirname "$VT_LOCK")" "$(dirname "$VT_STATE")"
 exec 9>"$VT_LOCK"
 flock -n 9 || { log "上一轮尚未结束，跳过本次"; exit 0; }
 
-# ---- 1. 取远端版本：直连优先，失败逐个换镜像 ----
-resolve_ref() {
+# ---- 1. 取远端版本：逐源探测，直连优先，镜像兜底 ----
+# 探测每个来源，输出 "SHA<TAB>URL"。stdout 只允许出现结果行。
+probe_sources() {
   local url sha
   for url in "$VT_REMOTE" $VT_MIRRORS; do
-    sha="$(timeout 40 git ls-remote "$url" "refs/heads/$VT_BRANCH" 2>/dev/null | awk 'NR==1{print $1}')"
-    if [ -n "${sha:-}" ]; then printf '%s|%s\n' "$url" "$sha"; return 0; fi
-    log "取远端失败，换下一个来源：${url:0:70}"
+    sha="$(timeout 15 git ls-remote "$url" "refs/heads/$VT_BRANCH" 2>/dev/null | awk 'NR==1{print $1}')"
+    if [ -n "${sha:-}" ]; then
+      printf '%s\t%s\n' "$sha" "$url"
+    else
+      log "取远端失败：${url:0:70}"
+    fi
   done
-  return 1
 }
 
-REF="$(resolve_ref)" || die "所有来源都拿不到远端版本（网络问题？），本轮跳过"
-SRC_URL="${REF%%|*}"
-NEW="${REF##*|}"
+PROBED="$(probe_sources)"
+if [ -z "$PROBED" ]; then
+  die "所有来源都拿不到远端版本（网络问题？），本轮跳过"
+fi
+
+# 直连存在时以它为准（内容源最权威）。
+# 直连不可用（国内机房常态）时，要求两个镜像给出的 SHA 一致 —— 本脚本以 root
+# 运行，单一镜像若被投毒就等于给了对方 root，交叉校验是这里唯一有效的兜底。
+REF="$(printf '%s\n' "$PROBED" | awk -F'\t' -v d="$VT_REMOTE" '$2==d{print; exit}')"
+if [ -n "$REF" ]; then
+  SRC_URL="$(printf '%s' "$REF" | cut -f2)"
+  NEW="$(printf '%s' "$REF" | cut -f1)"
+  log "来源：直连"
+else
+  AGREE="$(printf '%s\n' "$PROBED" | cut -f1 | sort | uniq -c | awk '$1>=2{print $2; exit}')"
+  if [ -n "$AGREE" ]; then
+    REF="$(printf '%s\n' "$PROBED" | awk -F'\t' -v s="$AGREE" '$1==s{print; exit}')"
+    log "来源：镜像（两个镜像 SHA 一致 ${AGREE:0:8}，已交叉校验）"
+  else
+    REF="$(printf '%s\n' "$PROBED" | head -1)"
+    log "!! 镜像之间 SHA 不一致，降级采用单一来源：$(printf '%s' "$REF" | cut -f2 | cut -c1-60)"
+  fi
+  SRC_URL="$(printf '%s' "$REF" | cut -f2)"
+  NEW="$(printf '%s' "$REF" | cut -f1)"
+fi
+
 OLD="$(cat "$VT_STATE" 2>/dev/null || true)"
 
 if [ "$NEW" = "$OLD" ]; then
   exit 0   # 无变化：静默退出，不刷日志
 fi
-log "检测到新版本 ${NEW:0:8}（线上 ${OLD:0:8}），来源 ${SRC_URL:0:70}"
+log "检测到新版本 ${NEW:0:8}（线上 ${OLD:0:8}）"
 
 # ---- 2. 同步检出 ----
 fetch_into_repo() {
@@ -93,7 +121,7 @@ sync_code() {
 syntax_ok() {
   docker ps --format '{{.Names}}' | grep -qx "$VT_CONTAINER" || return 0
   local files
-  files="$(git -C "$VT_REPO" ls-tree -r --name-only HEAD -- server | grep '\.js$' | sed 's|^server/|/app/server/|')"
+  files="$(git -C "$VT_REPO" ls-tree -r --name-only HEAD -- server | grep '\.js$' | sed 's|^server/|/app/server/|' || true)"
   [ -n "$files" ] || return 0
   printf '%s\n' "$files" | docker exec -i "$VT_CONTAINER" sh -c \
     'while read -r f; do node --check "$f" || { echo "语法错误: $f"; exit 1; }; done'
