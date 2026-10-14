@@ -585,3 +585,5 @@ server.listen(PORT, HOST, () => {
   log(`音频切片：每段 ${SEGMENT_SECONDS}s｜上限：${lim.maxMinutes} 分钟 / ${lim.maxMb}MB`);
   ytdlpVersion().then((v) => log(v ? `yt-dlp：${v}` : 'yt-dlp：不可用（只有原生解析的三个平台可解析）'));
 });
+
+// tag-gate-check-170306
