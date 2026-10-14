@@ -586,4 +586,3 @@ server.listen(PORT, HOST, () => {
   ytdlpVersion().then((v) => log(v ? `yt-dlp：${v}` : 'yt-dlp：不可用（只有原生解析的三个平台可解析）'));
 });
 
-// tag-gate-check-170306
