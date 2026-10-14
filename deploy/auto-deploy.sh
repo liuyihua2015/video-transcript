@@ -19,9 +19,12 @@ set -euo pipefail
 VT_REPO="${VT_REPO:-/opt/video-transcript-src}"
 VT_TARGET="${VT_TARGET:-/opt/douyin-transcript}"
 VT_REMOTE="${VT_REMOTE:-https://github.com/liuyihua2015/video-transcript.git}"
-# 国内机房直连 github.com 时通时断（实测多个官方 IP 全部超时），镜像作为兜底。
-# 两个镜像都支持 git smart-http（ls-remote / fetch 均实测可用），返回的 SHA 与主仓一致。
+# 国内机房直连 github.com 实测基本连不上（多个官方 IP 全部超时），两个镜像可达且都支持
+# git smart-http（ls-remote / fetch 均实测可用）。镜像的 SHA 必须互相印证才被采用，
+# 详见下面 resolve 段的注释。
 VT_MIRRORS="${VT_MIRRORS:-https://ghfast.top/$VT_REMOTE https://gh-proxy.com/$VT_REMOTE}"
+# 单次 ls-remote 的超时（秒）：直连能通时很快，连不通时靠它兜住不挂太久
+VT_PROBE_TIMEOUT="${VT_PROBE_TIMEOUT:-20}"
 VT_BRANCH="${VT_BRANCH:-main}"
 VT_CONTAINER="${VT_CONTAINER:-dytx-app}"
 VT_HEALTH_URL="${VT_HEALTH_URL:-http://127.0.0.1:3300/api/health}"
@@ -38,12 +41,12 @@ mkdir -p "$(dirname "$VT_LOCK")" "$(dirname "$VT_STATE")"
 exec 9>"$VT_LOCK"
 flock -n 9 || { log "上一轮尚未结束，跳过本次"; exit 0; }
 
-# ---- 1. 取远端版本：逐源探测，直连优先，镜像兜底 ----
-# 探测每个来源，输出 "SHA<TAB>URL"。stdout 只允许出现结果行。
+# ---- 1. 取远端版本 ----
+# 探测给定来源，每个输出一行 "SHA<TAB>URL"。stdout 只允许出现结果行。
 probe_sources() {
   local url sha
-  for url in "$VT_REMOTE" $VT_MIRRORS; do
-    sha="$(timeout 15 git ls-remote "$url" "refs/heads/$VT_BRANCH" 2>/dev/null | awk 'NR==1{print $1}')"
+  for url in "$@"; do
+    sha="$(timeout "${VT_PROBE_TIMEOUT:-20}" git ls-remote "$url" "refs/heads/$VT_BRANCH" 2>/dev/null | awk 'NR==1{print $1}')"
     if [ -n "${sha:-}" ]; then
       printf '%s\t%s\n' "$sha" "$url"
     else
@@ -52,31 +55,31 @@ probe_sources() {
   done
 }
 
-PROBED="$(probe_sources)"
-if [ -z "$PROBED" ]; then
-  die "所有来源都拿不到远端版本（网络问题？），本轮跳过"
+# 先探镜像：国内机房直连 github.com 基本连不上（实测多个官方 IP 全部超时），
+# 而两个镜像都可达 —— 让它们互相交叉校验，正常一轮几秒就够，不必去等直连超时。
+# 本脚本以 root 运行、执行的又是拉下来的代码，因此必须避免「单一来源说了算」：
+# 只要镜像没能取得一致（例如其中一个正好抖动），就回头问直连要权威答案。
+MIRROR_PROBED="$(probe_sources $VT_MIRRORS)"
+AGREE="$(printf '%s\n' "$MIRROR_PROBED" | cut -f1 | sort | uniq -c | awk '$1>=2{print $2; exit}')"
+
+if [ -n "$AGREE" ]; then
+  REF="$(printf '%s\n' "$MIRROR_PROBED" | awk -F'\t' -v s="$AGREE" '$1==s{print; exit}')"
+  log "来源：镜像（两个镜像 SHA 一致 ${AGREE:0:8}，已交叉校验）"
+else
+  DIRECT_PROBED="$(probe_sources "$VT_REMOTE")"
+  if [ -n "$DIRECT_PROBED" ]; then
+    REF="$DIRECT_PROBED"
+    log "来源：直连"
+  elif [ -n "$(printf '%s\n' "$MIRROR_PROBED" | grep -v '^$')" ]; then
+    REF="$(printf '%s\n' "$MIRROR_PROBED" | grep -v '^$' | head -1)"
+    log "!! 直连不可用且镜像未取得一致，降级采用单一来源 $(printf '%s' "$REF" | cut -f2 | cut -c1-60)"
+  else
+    die "所有来源都拿不到远端版本（网络问题？），本轮跳过"
+  fi
 fi
 
-# 直连存在时以它为准（内容源最权威）。
-# 直连不可用（国内机房常态）时，要求两个镜像给出的 SHA 一致 —— 本脚本以 root
-# 运行，单一镜像若被投毒就等于给了对方 root，交叉校验是这里唯一有效的兜底。
-REF="$(printf '%s\n' "$PROBED" | awk -F'\t' -v d="$VT_REMOTE" '$2==d{print; exit}')"
-if [ -n "$REF" ]; then
-  SRC_URL="$(printf '%s' "$REF" | cut -f2)"
-  NEW="$(printf '%s' "$REF" | cut -f1)"
-  log "来源：直连"
-else
-  AGREE="$(printf '%s\n' "$PROBED" | cut -f1 | sort | uniq -c | awk '$1>=2{print $2; exit}')"
-  if [ -n "$AGREE" ]; then
-    REF="$(printf '%s\n' "$PROBED" | awk -F'\t' -v s="$AGREE" '$1==s{print; exit}')"
-    log "来源：镜像（两个镜像 SHA 一致 ${AGREE:0:8}，已交叉校验）"
-  else
-    REF="$(printf '%s\n' "$PROBED" | head -1)"
-    log "!! 镜像之间 SHA 不一致，降级采用单一来源：$(printf '%s' "$REF" | cut -f2 | cut -c1-60)"
-  fi
-  SRC_URL="$(printf '%s' "$REF" | cut -f2)"
-  NEW="$(printf '%s' "$REF" | cut -f1)"
-fi
+SRC_URL="$(printf '%s' "$REF" | cut -f2)"
+NEW="$(printf '%s' "$REF" | cut -f1)"
 
 OLD="$(cat "$VT_STATE" 2>/dev/null || true)"
 

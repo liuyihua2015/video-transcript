@@ -129,6 +129,25 @@ journalctl -u video-transcript-autodeploy -n 50
 - 不重建镜像，因此不会触发 apk 安装那 5–6 分钟
 - ⚠️ 脚本以 root 运行、执行的又是仓库里的代码 —— **仓库的可写权限等于本机的 root 权限**。不要给仓库加协作者，也不要在 `main` 上放开让他人直推
 
+### 取源与自更新
+
+国内机房直连 `github.com` 实测基本连不上（多个官方 IP 全部超时），所以脚本按下面的顺序拿代码：
+
+1. **先问两个加速镜像**（`ghfast.top` / `gh-proxy.com`）。两者都支持 git smart-http，正常情况下几秒就够，不需要去等直连超时。
+2. **要求两个镜像给出的 SHA 一致**才采用 —— 脚本以 root 运行、执行的又是拉下来的代码，让「单一来源说了算」等于把 root 交给对方。两个独立镜像互相印证是这里唯一有效的兜底。
+3. 镜像没能取得一致时，**回头问直连要权威答案**；直连也不可用才降级用单一镜像，并在日志里明确告警。
+
+另外脚本运行中会 `git reset --hard` 更新自己所在的检出目录，而 bash 是边读边执行的 —— 直接执行源文件会出现「执行到一半内容被换掉」。所以 systemd 单元先把脚本 `install` 到 `/usr/local/lib/` 再执行，**本轮跑的是上一轮已校验过的版本**。
+
+排查：
+
+```bash
+systemctl status video-transcript-autodeploy.service    # 上次结果
+journalctl -u video-transcript-autodeploy -n 50         # 日志
+sudo systemctl start video-transcript-autodeploy.service # 手动触发
+cat /var/lib/video-transcript-autodeploy/last-good       # 当前线上版本（完整 SHA）
+```
+
 ## 限制与已知问题
 
 - 单视频 **≤ 30 分钟 / 300 MB**，超限在解析阶段就拒绝
