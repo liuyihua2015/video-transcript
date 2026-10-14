@@ -1,0 +1,14 @@
+{
+  "name": "douyin-transcript",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "抖音视频文案提取工具：分享链接 -> 语音识别 -> 可编辑文案 / SRT 字幕",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "dev": "node --watch --env-file-if-exists=.env server/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,34 @@
+services:
+  app:
+    build: .
+    image: douyin-transcript:local
+    container_name: dytx-app
+    restart: always
+    env_file:
+      - .env
+    environment:
+      # 写在这里而不是只靠 Dockerfile 的 ENV：改这一行只需重建容器（秒级），
+      # 不用重建镜像。真正的二进制在宿主机 ./bin 里，只读挂进 /app/bin。
+      YTDLP_PATH: /app/bin/yt-dlp
+    # 只绑本机回环，外部访问统一走已有的 nginx 容器反代
+    ports:
+      - "127.0.0.1:3300:3000"
+    # 这台机器只有 2G 内存，且同时跑着 shijian-ai 的 mysql/redis/app，
+    # 给本服务设上限，避免 ffmpeg 转码时把宿主机内存吃满影响生产站。
+    mem_limit: 512m
+    # 源码以只读方式挂进来：镜像本身仍带一份代码兜底，
+    # 但日常改代码只需同步文件 + 重启容器（秒级），不用重建镜像（构建要等 apk/层缓存）。
+    # 发布命令：./deploy/remote-deploy.sh hot
+    volumes:
+      - ./server:/app/server:ro
+      - ./public:/app/public:ro
+      # 通用引擎 yt-dlp 的二进制（约 40MB）。放在宿主机而不是烤进镜像，
+      # 好处是升级只要换一个文件（./deploy/remote-deploy.sh update-ytdlp），不用重建镜像。
+      - ./bin:/app/bin:ro
+    networks:
+      - internal
+
+networks:
+  internal:
+    external: true
+    name: deploy_internal

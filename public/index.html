@@ -1,0 +1,1662 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>文案提取器 · 视频一键转文字（抖音 / 快手 / B站…）</title>
+<meta name="description" content="粘贴视频链接或分享口令，自动下载音频、识别语音并转成可编辑文案，按句分段、带时间码，支持导出 TXT 与 SRT 字幕。支持抖音、快手、哔哩哔哩等主流平台。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23fe2c55'/%3E%3Cpath d='M11 10h10M11 16h10M11 22h6' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+/* ============ 设计令牌 ============ */
+:root{
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", "Roboto Mono", Menlo, Consolas, monospace;
+
+  --ink: #16181d;
+  --ink-2: #4b5261;
+  --ink-3: #8b93a3;
+  --ink-4: #aeb5c2;
+
+  --bg: #ffffff;
+  --bg-soft: #f6f7f9;
+  --bg-softer: #fbfbfc;
+  --line: #e8eaef;
+  --line-strong: #d9dde5;
+
+  --brand: #fe2c55;
+  --brand-dark: #e01b43;
+  --brand-soft: #fff0f3;
+  --brand-line: #ffd3dc;
+
+  --ok: #12b76a;
+  --warn: #f79009;
+  --err: #ef4444;
+
+  --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem;
+  --space-5:1.25rem; --space-6:1.5rem; --space-8:2rem; --space-10:2.5rem;
+  --space-12:3rem; --space-16:4rem; --space-20:5rem; --space-24:6rem;
+
+  --radius-sm:8px; --radius-md:12px; --radius-lg:16px; --radius-xl:22px; --radius-full:9999px;
+
+  --shadow-xs: 0 1px 2px rgba(22,24,29,.05);
+  --shadow-sm: 0 2px 8px rgba(22,24,29,.05);
+  --shadow-md: 0 6px 24px rgba(22,24,29,.07);
+  --shadow-lg: 0 18px 48px rgba(22,24,29,.10);
+  --shadow-brand: 0 8px 24px rgba(254,44,85,.25);
+
+  --ease-out: cubic-bezier(.16,1,.3,1);
+  --ease-in-out: cubic-bezier(.4,0,.2,1);
+}
+
+/* ============ 基础 ============ */
+*,*::before,*::after{ box-sizing:border-box; }
+html{ -webkit-text-size-adjust:100%; scroll-behavior:smooth; }
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--font-sans); font-size:16px; line-height:1.75;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+h1,h2,h3,h4{ margin:0; line-height:1.25; letter-spacing:-.02em; font-weight:700; }
+p{ margin:0; }
+button{ font-family:inherit; }
+a{ color:inherit; }
+img{ display:block; max-width:100%; }
+:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; border-radius:4px; }
+
+.container{ width:100%; max-width:1120px; margin:0 auto; padding:0 var(--space-6); }
+.container-narrow{ width:100%; max-width:760px; margin:0 auto; padding:0 var(--space-6); }
+.sr-only{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+
+/* ============ 导航 ============ */
+.site-nav{
+  position:sticky; top:0; z-index:40;
+  background:rgba(255,255,255,.82);
+  backdrop-filter:saturate(180%) blur(14px);
+  -webkit-backdrop-filter:saturate(180%) blur(14px);
+  border-bottom:1px solid transparent; transition:border-color .2s;
+}
+.site-nav.scrolled{ border-bottom-color:var(--line); }
+.nav-inner{ display:flex; align-items:center; justify-content:space-between; height:64px; gap:var(--space-4); }
+.brand{ display:flex; align-items:center; gap:.6rem; text-decoration:none; font-weight:750; letter-spacing:-.02em; }
+.brand-mark{
+  width:30px; height:30px; border-radius:9px; display:grid; place-items:center;
+  background:linear-gradient(140deg,#fe2c55,#ff6b8a); box-shadow:0 3px 10px rgba(254,44,85,.3); flex:none;
+}
+.brand-mark svg{ width:17px; height:17px; }
+.nav-links{ display:flex; gap:var(--space-6); font-size:.9375rem; color:var(--ink-2); }
+.nav-links a{ text-decoration:none; transition:color .15s; }
+.nav-links a:hover{ color:var(--ink); }
+.nav-cta{
+  font-size:.875rem; font-weight:600; text-decoration:none; color:var(--brand);
+  background:var(--brand-soft); border:1px solid var(--brand-line);
+  padding:.45rem 1rem; border-radius:var(--radius-full); transition:.18s var(--ease-out);
+}
+.nav-cta:hover{ background:var(--brand); color:#fff; border-color:var(--brand); }
+/* 顶栏左侧：返回 zehvo.com 首页。
+   本页是官网的子路径（/douyin/），访客基本是从首页点进来的，给一个明确的回头路。
+   地址写死为绝对地址，无论本页挂在哪个子路径下都能回到首页。 */
+.nav-left{ display:flex; align-items:center; gap:var(--space-3); min-width:0; }
+.home-link{
+  display:inline-flex; align-items:center; gap:.28rem; flex:none; white-space:nowrap;
+  font-size:.8125rem; font-weight:600; text-decoration:none; color:var(--ink-2);
+  background:#fff; border:1px solid var(--line); border-radius:var(--radius-full);
+  padding:.38rem .8rem .38rem .58rem; box-shadow:var(--shadow-xs);
+  transition:.18s var(--ease-out);
+}
+.home-link svg{ width:14px; height:14px; flex:none; }
+.home-link:hover{ color:var(--brand); background:var(--brand-soft); border-color:var(--brand-line); }
+@media (max-width:560px){
+  .home-link .home-link-text{ display:none; }
+  .home-link{ padding:.42rem .58rem; }
+}
+@media (max-width:820px){ .nav-links{ display:none; } }
+
+/* ============ Hero ============ */
+.hero{ position:relative; overflow:hidden; padding:clamp(3rem,8vw,5.5rem) 0 clamp(2.5rem,5vw,4rem); }
+.hero::before{
+  content:""; position:absolute; inset:-40% 0 auto; height:130%; pointer-events:none; z-index:0;
+  background:
+    radial-gradient(50% 42% at 50% 30%, rgba(254,44,85,.10), transparent 70%),
+    radial-gradient(38% 34% at 82% 12%, rgba(37,244,238,.10), transparent 70%);
+}
+.hero::after{
+  content:""; position:absolute; inset:0; z-index:0; pointer-events:none; opacity:.5;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:56px 56px;
+  mask-image:radial-gradient(60% 55% at 50% 32%, #000, transparent 78%);
+  -webkit-mask-image:radial-gradient(60% 55% at 50% 32%, #000, transparent 78%);
+}
+.hero-inner{ position:relative; z-index:1; text-align:center; }
+
+.pill-badge{
+  display:inline-flex; align-items:center; gap:.5rem; font-size:.8125rem; font-weight:550;
+  color:var(--ink-2); background:#fff; border:1px solid var(--line);
+  padding:.35rem .85rem .35rem .5rem; border-radius:var(--radius-full); box-shadow:var(--shadow-xs);
+  margin-bottom:var(--space-6);
+}
+.pill-badge .dot{ width:7px; height:7px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 3px rgba(18,183,106,.16); }
+
+.hero h1{
+  font-size:clamp(2.15rem,5.4vw,3.65rem); font-weight:820; letter-spacing:-.035em; line-height:1.14;
+  margin-bottom:var(--space-5);
+}
+.hero h1 em{
+  font-style:normal; position:relative; white-space:nowrap;
+  background:linear-gradient(96deg,#fe2c55,#ff7a5c 55%,#ffab4d);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.hero .lede{
+  font-size:clamp(1rem,1.6vw,1.125rem); color:var(--ink-2); line-height:1.85;
+  max-width:640px; margin:0 auto var(--space-10);
+}
+
+/* ---- 输入卡 ---- */
+.composer{
+  max-width:720px; margin:0 auto; text-align:left;
+  background:#fff; border:1.5px solid var(--line-strong); border-radius:var(--radius-xl);
+  padding:.5rem; box-shadow:var(--shadow-md);
+  transition:border-color .2s var(--ease-out), box-shadow .25s var(--ease-out);
+}
+.composer:focus-within{ border-color:var(--brand); box-shadow:var(--shadow-lg),0 0 0 4px rgba(254,44,85,.10); }
+.composer textarea{
+  width:100%; min-height:104px; max-height:280px; resize:none; border:none; outline:none;
+  padding:1rem 1rem .5rem; font-family:inherit; font-size:1rem; line-height:1.7; color:var(--ink);
+  background:transparent;
+}
+.composer textarea::placeholder{ color:var(--ink-4); }
+.composer-foot{
+  display:flex; align-items:center; justify-content:space-between; gap:var(--space-4);
+  padding:.35rem .5rem .4rem .9rem; border-top:1px solid var(--line);
+}
+.composer-hint{ font-size:.8125rem; color:var(--ink-4); display:flex; align-items:center; gap:.5rem; }
+.kbd{
+  font-family:var(--font-mono); font-size:.75rem; padding:.1rem .35rem;
+  background:var(--bg-soft); border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; color:var(--ink-3);
+}
+
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:.5rem;
+  font-size:.9375rem; font-weight:650; line-height:1; cursor:pointer;
+  border:1px solid transparent; border-radius:var(--radius-md); padding:.8rem 1.35rem;
+  transition:transform .15s var(--ease-out), background .18s, box-shadow .2s, color .18s, border-color .18s;
+  white-space:nowrap; text-decoration:none;
+}
+.btn svg{ width:17px; height:17px; flex:none; }
+.btn-primary{ background:var(--brand); color:#fff; box-shadow:var(--shadow-brand); }
+.btn-primary:hover{ background:var(--brand-dark); transform:translateY(-1px); }
+.btn-primary:active{ transform:translateY(0); }
+.btn-primary:disabled{ opacity:.55; cursor:not-allowed; transform:none; box-shadow:none; }
+.btn-ghost{ background:#fff; color:var(--ink-2); border-color:var(--line-strong); }
+.btn-ghost:hover{ color:var(--ink); border-color:var(--ink-4); background:var(--bg-softer); }
+.btn-sm{ padding:.55rem .9rem; font-size:.8125rem; border-radius:9px; }
+.btn-sm svg{ width:14px; height:14px; }
+
+.quick-row{
+  display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:.5rem;
+  margin-top:var(--space-5); font-size:.8125rem; color:var(--ink-3); min-height:28px;
+}
+.chip{
+  background:#fff; border:1px solid var(--line); border-radius:var(--radius-full);
+  padding:.28rem .75rem; font-size:.8125rem; color:var(--ink-2); cursor:pointer;
+  max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  transition:.16s var(--ease-out);
+}
+.chip:hover{ border-color:var(--brand-line); background:var(--brand-soft); color:var(--brand); }
+
+/* ---- 支持平台 ---- */
+.platforms{
+  margin-top:var(--space-6); padding:1rem 1.1rem;
+  background:var(--bg-softer); border:1px solid var(--line); border-radius:var(--radius-lg);
+  text-align:left;
+}
+.platforms-title{
+  display:flex; align-items:baseline; flex-wrap:wrap; gap:.5rem .6rem;
+  font-size:.8125rem; font-weight:650; color:var(--ink-2);
+}
+.platforms-limit{ font-weight:450; color:var(--ink-4); }
+.plat-chips{ display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.65rem; }
+.plat-chip{
+  display:inline-flex; align-items:baseline; gap:.35rem;
+  background:#fff; border:1px solid var(--line); border-radius:var(--radius-full);
+  padding:.3rem .75rem; font-size:.8125rem; color:var(--ink-2); line-height:1.5;
+}
+.plat-chip b{ font-weight:650; }
+.plat-chip small{ color:var(--ink-4); font-size:.75rem; }
+.plat-chip.solid{ border-color:var(--brand-line); background:var(--brand-soft); color:var(--brand); }
+.plat-chip.solid small{ color:var(--brand); opacity:.7; }
+.platforms-note{ margin:.75rem 0 0; font-size:.8125rem; color:var(--ink-3); line-height:1.7; }
+.platforms-note b{ color:var(--ink-2); font-weight:650; }
+.link-btn{
+  background:none; border:none; padding:0; color:var(--ink-3); font-size:.8125rem;
+  text-decoration:underline; text-underline-offset:3px; cursor:pointer;
+}
+.link-btn:hover{ color:var(--brand); }
+
+/* ============ 语音识别设置 ============ */
+.asr-panel{
+  max-width:720px; margin:var(--space-5) auto 0; text-align:left;
+  background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-xs); overflow:hidden; transition:border-color .2s var(--ease-out);
+}
+.asr-panel.open{ border-color:var(--line-strong); box-shadow:var(--shadow-sm); }
+.asr-panel.attn{ border-color:var(--brand-line); box-shadow:0 0 0 4px rgba(254,44,85,.07); }
+.asr-toggle{
+  width:100%; display:flex; align-items:center; gap:.6rem; cursor:pointer;
+  background:none; border:none; padding:.85rem 1.1rem; text-align:left; color:var(--ink);
+}
+.asr-toggle:hover{ background:var(--bg-softer); }
+.asr-dot{ width:8px; height:8px; border-radius:50%; background:var(--ink-4); flex:none; transition:.2s; }
+.asr-dot.ok{ background:var(--ok); box-shadow:0 0 0 3px rgba(18,183,106,.15); }
+.asr-dot.warn{ background:var(--warn); box-shadow:0 0 0 3px rgba(247,144,9,.15); }
+.asr-toggle-label{ font-size:.9375rem; font-weight:600; }
+.asr-badge{
+  font-size:.75rem; font-weight:600; padding:.15rem .55rem; border-radius:var(--radius-full);
+  background:var(--bg-soft); color:var(--ink-3); border:1px solid var(--line);
+}
+.asr-badge.ok{ background:rgba(18,183,106,.08); color:#0b8a50; border-color:rgba(18,183,106,.25); }
+.asr-badge.warn{ background:rgba(247,144,9,.09); color:#b56a00; border-color:rgba(247,144,9,.28); }
+.asr-spacer{ flex:1; }
+.asr-caret{ width:16px; height:16px; color:var(--ink-3); transition:transform .25s var(--ease-out); flex:none; }
+.asr-panel.open .asr-caret{ transform:rotate(180deg); }
+
+.asr-body{ padding:0 1.1rem 1.1rem; border-top:1px solid var(--line); animation:fadeUp .3s var(--ease-out); }
+.asr-note{
+  font-size:.8125rem; color:var(--ink-3); line-height:1.7; margin:.9rem 0 1rem;
+  background:var(--bg-softer); border:1px solid var(--line); border-radius:var(--radius-md); padding:.7rem .85rem;
+}
+.asr-note b{ color:var(--ink-2); font-weight:650; }
+.mono-inline{
+  font-family:var(--font-mono); font-size:.78rem; color:var(--ink-2);
+  background:var(--bg-soft); border:1px solid var(--line); border-radius:4px; padding:.02rem .3rem;
+}
+.asr-note a{ color:var(--brand); text-underline-offset:3px; }
+/* 调用方式二选一 */
+.asr-modes{ display:grid; grid-template-columns:1fr 1fr; gap:.5rem; margin-bottom:1rem; }
+@media (max-width:520px){ .asr-modes{ grid-template-columns:1fr; } }
+.asr-mode{
+  display:flex; flex-direction:column; gap:.15rem; text-align:left; cursor:pointer;
+  background:#fff; border:1.5px solid var(--line-strong); border-radius:var(--radius-md);
+  padding:.6rem .8rem; color:var(--ink); font-family:inherit; transition:.16s var(--ease-out);
+}
+.asr-mode:hover{ border-color:var(--ink-4); }
+.asr-mode b{ font-size:.875rem; font-weight:600; }
+.asr-mode span{ font-size:.75rem; color:var(--ink-4); }
+.asr-mode[aria-checked="true"]{ border-color:var(--brand); box-shadow:0 0 0 4px rgba(254,44,85,.10); }
+.asr-mode[aria-checked="true"] b{ color:var(--brand); }
+.asr-mode[disabled]{ opacity:.5; cursor:not-allowed; }
+.asr-mode[disabled]:hover{ border-color:var(--line-strong); }
+.site-card{
+  display:flex; flex-direction:column; gap:.35rem; margin-bottom:.75rem;
+  background:rgba(18,183,106,.05); border:1px solid rgba(18,183,106,.22);
+  border-radius:var(--radius-md); padding:.7rem .85rem; transition:.2s var(--ease-out);
+}
+.site-card.warn{ background:rgba(247,144,9,.07); border-color:rgba(247,144,9,.3); }
+.site-line{ display:flex; align-items:center; gap:.5rem; font-size:.875rem; font-weight:600; color:var(--ink-2); }
+.site-quota{ font-size:.78rem; color:var(--ink-3); line-height:1.7; margin:0; }
+.field{ display:block; margin-bottom:.8rem; }
+.field-label{ display:block; font-size:.8125rem; font-weight:600; color:var(--ink-2); margin-bottom:.35rem; }
+.field-input{ display:flex; gap:.5rem; align-items:stretch; }
+.field input{
+  flex:1; min-width:0; font-family:inherit; font-size:.9375rem; color:var(--ink);
+  background:#fff; border:1.5px solid var(--line-strong); border-radius:var(--radius-md);
+  padding:.65rem .8rem; outline:none; transition:border-color .18s var(--ease-out), box-shadow .2s;
+}
+.field input:focus{ border-color:var(--brand); box-shadow:0 0 0 4px rgba(254,44,85,.10); }
+.field input::placeholder{ color:var(--ink-4); }
+.field-help{ display:block; font-size:.75rem; color:var(--ink-4); margin-top:.3rem; line-height:1.6; }
+.field input.mono{ font-family:var(--font-mono); font-size:.875rem; }
+.mini-btn{
+  flex:none; background:#fff; border:1.5px solid var(--line-strong); border-radius:var(--radius-md);
+  padding:0 .8rem; font-size:.8125rem; font-weight:600; color:var(--ink-2); cursor:pointer; transition:.16s var(--ease-out);
+}
+.mini-btn:hover{ border-color:var(--ink-4); color:var(--ink); }
+.asr-adv-toggle{
+  background:none; border:none; padding:0; color:var(--ink-3); font-size:.8125rem; cursor:pointer;
+  text-decoration:underline; text-underline-offset:3px; margin-bottom:.7rem;
+}
+.asr-adv-toggle:hover{ color:var(--brand); }
+.asr-adv{ display:grid; grid-template-columns:1.6fr 1fr; gap:.8rem; }
+@media (max-width:640px){ .asr-adv{ grid-template-columns:1fr; } }
+.asr-actions{ display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; margin-top:.4rem; }
+.asr-hint{ font-size:.8125rem; color:var(--ink-3); }
+.asr-hint.ok{ color:#0b8a50; }
+.asr-hint.err{ color:var(--err); }
+
+/* ============ 进度 ============ */
+.stage-band{ padding:0 0 var(--space-16); animation:fadeUp .5s var(--ease-out); }
+.stage-card{
+  max-width:820px; margin:0 auto; background:#fff; border:1px solid var(--line);
+  border-radius:var(--radius-xl); box-shadow:var(--shadow-md); padding:var(--space-6);
+}
+.stage-head{ display:flex; align-items:center; justify-content:space-between; gap:var(--space-4); margin-bottom:var(--space-5); }
+.stage-title{ font-size:1rem; font-weight:650; display:flex; align-items:center; gap:.6rem; }
+.spinner{
+  width:16px; height:16px; border:2px solid var(--brand-line); border-top-color:var(--brand);
+  border-radius:50%; animation:spin .7s linear infinite; flex:none;
+}
+@keyframes spin{ to{ transform:rotate(360deg); } }
+.stage-pct{ font-family:var(--font-mono); font-size:.875rem; color:var(--ink-3); }
+
+.bar{ height:5px; border-radius:var(--radius-full); background:var(--bg-soft); overflow:hidden; }
+.bar-fill{
+  height:100%; width:0%; border-radius:inherit; background:linear-gradient(90deg,#fe2c55,#ff8a5c);
+  transition:width .5s var(--ease-out);
+}
+
+.steps{ display:grid; grid-template-columns:repeat(4,1fr); gap:var(--space-3); margin-top:var(--space-5); }
+.step{ display:flex; align-items:center; gap:.5rem; font-size:.8125rem; color:var(--ink-4); }
+.step .mark{
+  width:20px; height:20px; border-radius:50%; border:1.5px solid var(--line-strong);
+  display:grid; place-items:center; flex:none; font-size:.6875rem; font-weight:700; color:var(--ink-4);
+  transition:.3s var(--ease-out);
+}
+.step .mark svg{ width:11px; height:11px; }
+.step.active{ color:var(--ink); font-weight:600; }
+.step.active .mark{ border-color:var(--brand); background:var(--brand-soft); color:var(--brand); animation:pulse 1.6s ease-in-out infinite; }
+.step.done{ color:var(--ink-2); }
+.step.done .mark{ border-color:var(--ok); background:rgba(18,183,106,.10); color:var(--ok); }
+@keyframes pulse{ 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.12);} }
+@media (max-width:640px){
+  .steps{ grid-template-columns:repeat(2,1fr); row-gap:var(--space-4); }
+}
+
+.preview-strip{
+  display:flex; align-items:center; gap:var(--space-4); margin-top:var(--space-5);
+  padding-top:var(--space-5); border-top:1px solid var(--line);
+}
+.preview-strip img{ width:60px; height:80px; object-fit:cover; border-radius:10px; background:var(--bg-soft); flex:none; }
+.preview-strip .pv-title{ font-size:.875rem; font-weight:600; line-height:1.5;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.preview-strip .pv-sub{ font-size:.8125rem; color:var(--ink-3); margin-top:2px; }
+
+/* ============ 结果 ============ */
+.result-section{ padding:0 0 var(--space-20); animation:fadeUp .5s var(--ease-out); }
+.result-card{
+  max-width:960px; margin:0 auto; background:#fff; border:1px solid var(--line);
+  border-radius:var(--radius-xl); box-shadow:var(--shadow-lg); overflow:hidden;
+}
+.result-head{
+  display:flex; gap:var(--space-5); align-items:flex-start; padding:var(--space-6);
+  border-bottom:1px solid var(--line); background:linear-gradient(180deg,var(--bg-softer),#fff);
+}
+.result-cover{ width:82px; height:110px; object-fit:cover; border-radius:12px; background:var(--bg-soft); flex:none; }
+.result-meta{ flex:1; min-width:0; }
+.result-meta h2{ font-size:1.0625rem; font-weight:650; line-height:1.55; margin-bottom:.4rem;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.meta-line{ display:flex; flex-wrap:wrap; align-items:center; gap:.4rem .9rem; font-size:.8125rem; color:var(--ink-3); }
+.meta-line b{ font-weight:600; color:var(--ink-2); }
+.badge-demo{
+  font-size:.6875rem; font-weight:650; color:var(--warn); background:rgba(247,144,9,.12);
+  padding:.15rem .5rem; border-radius:var(--radius-full);
+}
+
+.tabs{ display:flex; gap:.35rem; padding:var(--space-4) var(--space-6) 0; overflow-x:auto; }
+.tab{
+  background:transparent; border:none; padding:.5rem .85rem; font-size:.875rem; font-weight:550;
+  color:var(--ink-3); border-radius:9px; cursor:pointer; white-space:nowrap; transition:.16s;
+}
+.tab:hover{ color:var(--ink); background:var(--bg-soft); }
+.tab.active{ color:var(--brand); background:var(--brand-soft); }
+
+.toolbar{
+  display:flex; flex-wrap:wrap; align-items:center; gap:.5rem;
+  padding:var(--space-3) var(--space-6) var(--space-4);
+  border-bottom:1px solid var(--line);
+}
+.toolbar .spacer{ flex:1; }
+.count-note{ font-size:.8125rem; color:var(--ink-3); font-family:var(--font-mono); }
+
+.result-body{ padding:var(--space-5) var(--space-6) var(--space-6); max-height:620px; overflow-y:auto; }
+.view{ display:none; animation:fade .25s var(--ease-out); }
+.view.active{ display:block; }
+
+.para{ display:flex; gap:var(--space-4); padding:.7rem 0; border-bottom:1px dashed var(--line); }
+.para:last-child{ border-bottom:none; }
+.tc{
+  font-family:var(--font-mono); font-size:.75rem; font-weight:600; color:var(--brand);
+  background:var(--brand-soft); border:1px solid var(--brand-line); border-radius:6px;
+  padding:.2rem .45rem; height:fit-content; min-width:52px; text-align:center;
+  cursor:pointer; flex:none; margin-top:.28rem; transition:.16s var(--ease-out);
+}
+.tc:hover{ background:var(--brand); color:#fff; border-color:var(--brand); }
+.para p{ font-size:.9375rem; line-height:1.9; color:var(--ink); }
+
+pre.plain{
+  font-family:var(--font-sans); white-space:pre-wrap; word-break:break-word;
+  font-size:.9375rem; line-height:1.9; margin:0; color:var(--ink);
+}
+pre.code{
+  font-family:var(--font-mono); font-size:.8125rem; line-height:1.75; white-space:pre-wrap;
+  word-break:break-word; margin:0; color:var(--ink-2); background:var(--bg-soft);
+  padding:var(--space-4); border-radius:var(--radius-md);
+}
+
+@media (max-width:640px){
+  .result-head{ flex-direction:column; }
+  .result-cover{ width:100%; height:160px; }
+  .result-body{ padding:var(--space-4); max-height:none; }
+  .para{ gap:var(--space-3); }
+}
+
+/* ============ 错误 ============ */
+.alert{
+  max-width:820px; margin:0 auto; display:flex; gap:var(--space-4); align-items:flex-start;
+  background:#fff5f5; border:1px solid #ffd9d9; border-radius:var(--radius-lg); padding:var(--space-5);
+  animation:fadeUp .4s var(--ease-out);
+}
+.alert svg{ width:20px; height:20px; color:var(--err); flex:none; margin-top:.2rem; }
+.alert h3{ font-size:.9375rem; margin-bottom:.25rem; }
+.alert p{ font-size:.875rem; color:var(--ink-2); line-height:1.75; }
+
+/* ============ 通用区块 ============ */
+.section{ padding:var(--space-20) 0; border-top:1px solid var(--line); }
+.section-soft{ background:var(--bg-softer); }
+.section-head{ text-align:center; max-width:640px; margin:0 auto var(--space-12); }
+.eyebrow{
+  font-size:.8125rem; font-weight:650; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--brand); margin-bottom:var(--space-3);
+}
+.section-head h2{ font-size:clamp(1.6rem,3.2vw,2.25rem); margin-bottom:var(--space-4); }
+.section-head p{ color:var(--ink-2); line-height:1.85; }
+
+.grid-auto{ display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:var(--space-6); }
+.card{
+  background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg);
+  padding:var(--space-6); box-shadow:var(--shadow-xs);
+  transition:transform .25s var(--ease-out), box-shadow .25s var(--ease-out), border-color .2s;
+}
+.card:hover{ transform:translateY(-4px); box-shadow:var(--shadow-lg); border-color:var(--line-strong); }
+.icon-box{
+  width:42px; height:42px; border-radius:12px; display:grid; place-items:center; margin-bottom:var(--space-4);
+  background:var(--brand-soft); color:var(--brand);
+}
+.icon-box svg{ width:20px; height:20px; }
+.card h3{ font-size:1rem; margin-bottom:.5rem; }
+.card p{ font-size:.875rem; color:var(--ink-2); line-height:1.8; }
+
+.steps-flow{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:var(--space-6); counter-reset:s; }
+.flow-item{ position:relative; padding-top:var(--space-2); }
+.flow-num{
+  width:34px; height:34px; border-radius:10px; display:grid; place-items:center; margin-bottom:var(--space-4);
+  background:linear-gradient(140deg,#fe2c55,#ff7a5c); color:#fff; font-weight:750; font-size:.9375rem;
+  box-shadow:0 6px 16px rgba(254,44,85,.22);
+}
+.flow-item h3{ font-size:1rem; margin-bottom:.45rem; }
+.flow-item p{ font-size:.875rem; color:var(--ink-2); line-height:1.8; }
+
+/* FAQ */
+.faq-list{ max-width:760px; margin:0 auto; display:grid; gap:var(--space-3); }
+details.faq{
+  background:#fff; border:1px solid var(--line); border-radius:var(--radius-md);
+  padding:0 var(--space-5); transition:border-color .2s, box-shadow .2s;
+}
+details.faq[open]{ border-color:var(--brand-line); box-shadow:var(--shadow-sm); }
+details.faq summary{
+  list-style:none; cursor:pointer; padding:var(--space-5) 0; font-weight:600; font-size:.9375rem;
+  display:flex; align-items:center; justify-content:space-between; gap:var(--space-4);
+}
+details.faq summary::-webkit-details-marker{ display:none; }
+details.faq summary::after{
+  content:""; width:9px; height:9px; border-right:2px solid var(--ink-3); border-bottom:2px solid var(--ink-3);
+  transform:rotate(45deg); transition:transform .25s var(--ease-out); flex:none; margin-right:4px;
+}
+details.faq[open] summary::after{ transform:rotate(-135deg); border-color:var(--brand); }
+details.faq .faq-body{ padding:0 0 var(--space-5); font-size:.875rem; color:var(--ink-2); line-height:1.85; }
+details.faq .faq-body ul{ margin:.4rem 0 .7rem; padding-left:1.15rem; }
+details.faq .faq-body li{ margin:.22rem 0; }
+details.faq .faq-body b{ color:var(--ink); font-weight:650; }
+
+/* 页脚 */
+.site-footer{ border-top:1px solid var(--line); background:var(--bg-softer); padding:var(--space-12) 0 var(--space-10); }
+.footer-inner{ display:flex; flex-wrap:wrap; gap:var(--space-8); justify-content:space-between; align-items:flex-start; }
+.footer-brand{ max-width:320px; }
+.footer-brand .brand{ margin-bottom:var(--space-3); }
+.footer-brand p{ font-size:.8125rem; color:var(--ink-3); line-height:1.85; }
+.footer-home{
+  display:inline-block; margin-top:var(--space-3);
+  font-size:.8125rem; font-weight:600; color:var(--ink-2); text-decoration:none;
+  transition:color .15s;
+}
+.footer-home:hover{ color:var(--brand); }
+.footer-cols{ display:flex; gap:var(--space-12); flex-wrap:wrap; }
+.footer-col h4{ font-size:.8125rem; color:var(--ink); margin-bottom:var(--space-3); letter-spacing:.02em; }
+.footer-col a{ display:block; font-size:.8125rem; color:var(--ink-3); text-decoration:none; padding:.2rem 0; }
+.footer-col a:hover{ color:var(--brand); }
+.footer-bottom{
+  margin-top:var(--space-10); padding-top:var(--space-6); border-top:1px solid var(--line);
+  display:flex; flex-wrap:wrap; gap:var(--space-3); justify-content:space-between;
+  font-size:.78125rem; color:var(--ink-4);
+}
+
+@keyframes fadeUp{ from{ opacity:0; transform:translateY(16px);} to{ opacity:1; transform:none;} }
+@keyframes fade{ from{ opacity:0; } to{ opacity:1; } }
+
+/* toast */
+.toast{
+  position:fixed; left:50%; bottom:32px; transform:translate(-50%,20px); z-index:80;
+  background:var(--ink); color:#fff; font-size:.875rem; padding:.7rem 1.1rem; border-radius:var(--radius-full);
+  box-shadow:var(--shadow-lg); opacity:0; pointer-events:none; transition:.28s var(--ease-out);
+}
+.toast.show{ opacity:1; transform:translate(-50%,0); }
+
+@media (prefers-reduced-motion:reduce){
+  *{ animation-duration:.01ms !important; transition-duration:.01ms !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="site-nav" id="siteNav">
+  <div class="container nav-inner">
+    <div class="nav-left">
+      <a class="home-link" href="https://www.zehvo.com/" title="返回 zehvo.com 首页">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M15 6l-6 6 6 6"/>
+        </svg>
+        <span class="home-link-text">返回首页</span>
+      </a>
+      <a class="brand" href="#top">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+            <path d="M8 6h8M8 12h8M8 18h5"/>
+          </svg>
+        </span>
+        <span>文案提取器</span>
+      </a>
+    </div>
+    <nav class="nav-links" aria-label="主导航">
+      <a href="#how">使用步骤</a>
+      <a href="#features">功能特性</a>
+      <a href="#faq">常见问题</a>
+    </nav>
+    <a class="nav-cta" href="#top">开始提取</a>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ============ Hero ============ -->
+  <section class="hero">
+    <div class="container hero-inner">
+      <span class="pill-badge"><span class="dot" aria-hidden="true"></span>支持抖音 · 快手 · 哔哩哔哩等主流平台</span>
+      <h1>把视频里的口播<br><em>变成可编辑的文案</em></h1>
+      <p class="lede">
+        粘贴链接或整段分享口令，自动取音轨、识别语音、按句分段输出。<br>
+        带时间码，可复制、可导出 TXT 与 SRT 字幕。
+      </p>
+
+      <form class="composer" id="composer" autocomplete="off">
+        <label class="sr-only" for="linkInput">视频链接或分享口令</label>
+        <textarea id="linkInput" rows="3"
+          placeholder="粘贴视频链接或 App 分享出来的整段口令，例如：
+7.68 复制打开抖音，看看【某某的作品】https://v.douyin.com/xxxxxxx/"></textarea>
+        <div class="composer-foot">
+          <span class="composer-hint"><span class="kbd">⌘</span><span class="kbd">Enter</span> 快速提交</span>
+          <button class="btn btn-primary" id="submitBtn" type="submit">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+            开始提取
+          </button>
+        </div>
+      </form>
+
+      <!-- ============ 支持平台（内容由 /api/health 注入） ============ -->
+      <div class="platforms" id="platforms">
+        <div class="platforms-title">
+          <span>支持平台</span>
+          <span class="platforms-limit" id="platformsLimit"></span>
+        </div>
+        <div class="plat-chips" id="platformChips">
+          <span class="plat-chip solid">抖音<small>原生</small></span>
+          <span class="plat-chip solid">快手<small>原生</small></span>
+          <span class="plat-chip solid">哔哩哔哩<small>原生</small></span>
+          <span class="plat-chip">其他站点<small>通用引擎</small></span>
+        </div>
+        <p class="platforms-note" id="platformsNote">
+          口播、教学、知识分享这类视频通吃；<b>电影、剧集、长直播不处理</b>——音轨太长既慢又没意义。
+        </p>
+      </div>
+
+      <div class="quick-row" id="quickRow">
+        <button type="button" class="link-btn" id="demoBtn">没有链接？看一份示例结果</button>
+      </div>
+      <div class="quick-row" id="historyRow" hidden></div>
+
+      <!-- ============ 语音识别设置（站点服务 / 自带 Key，二选一） ============ -->
+      <div class="asr-panel" id="asrPanel">
+        <button class="asr-toggle" id="asrToggle" type="button" aria-expanded="false" aria-controls="asrBody">
+          <span class="asr-dot" id="asrDot" aria-hidden="true"></span>
+          <span class="asr-toggle-label">语音识别设置</span>
+          <span class="asr-badge" id="asrBadge">未设置</span>
+          <span class="asr-spacer"></span>
+          <svg class="asr-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
+        <div class="asr-body" id="asrBody" hidden>
+          <p class="asr-note">
+            语音识别要调用第三方大模型、按量计费，所以这里有两种用法：<b>直接用本站的公共额度</b>（什么都不用填，但有人均限额），
+            或者<b>填你自己的 API Key</b>（额度算你的，本站不接触你的密钥）。
+          </p>
+
+          <div class="asr-modes" role="radiogroup" aria-label="语音识别调用方式">
+            <button class="asr-mode" id="modeSite" type="button" role="radio" aria-checked="false">
+              <b>使用站点服务</b>
+              <span>免填 Key · 开箱即用</span>
+            </button>
+            <button class="asr-mode" id="modeOwn" type="button" role="radio" aria-checked="false">
+              <b>使用我自己的 Key</b>
+              <span>只存本机浏览器</span>
+            </button>
+          </div>
+
+          <!-- 站点自带密钥：直接在服务端调用，前端不携带任何凭据 -->
+          <div id="siteBlock" hidden>
+            <div class="site-card" id="siteCard">
+              <div class="site-line">
+                <span class="asr-dot ok" aria-hidden="true"></span>
+                <span id="siteTitle">站点已提供识别服务</span>
+              </div>
+              <p class="site-quota" id="siteQuota"></p>
+            </div>
+            <div class="asr-actions">
+              <button class="btn btn-ghost btn-sm" id="siteTest" type="button">测试站点服务</button>
+              <span class="asr-hint" id="siteHint"></span>
+            </div>
+          </div>
+
+          <!-- 使用者自带 Key -->
+          <div id="ownBlock" hidden>
+            <p class="asr-note">
+              没填过的话，去
+              <a href="https://cloud.siliconflow.cn" target="_blank" rel="noopener">硅基流动</a>
+              注册并实名，生成一个 Key（<span class="mono-inline">FunAudioLLM/SenseVoiceSmall</span> 模型目前免费）。
+              Key <b>只保存在你这台设备的浏览器里</b>，提交任务时随请求一起发给服务端用于本次识别，
+              服务端不落盘、不写日志；换台设备或清了浏览器数据就需要重新填。
+            </p>
+            <label class="field">
+              <span class="field-label" for="asrKey">API Key</span>
+              <span class="field-input">
+                <input class="mono" id="asrKey" type="password" placeholder="sk-xxxxxxxxxxxxxxxx"
+                  autocomplete="off" spellcheck="false" autocapitalize="off">
+                <button class="mini-btn" id="asrEye" type="button">显示</button>
+              </span>
+            </label>
+            <button class="asr-adv-toggle" id="asrAdvToggle" type="button">高级设置（接口地址 / 模型）</button>
+            <div class="asr-adv" id="asrAdv" hidden>
+              <label class="field">
+                <span class="field-label" for="asrBase">接口地址</span>
+                <input class="mono" id="asrBase" type="text" spellcheck="false" autocapitalize="off"
+                  placeholder="https://api.siliconflow.cn/v1">
+                <span class="field-help" id="asrHostsHelp"></span>
+              </label>
+              <label class="field">
+                <span class="field-label" for="asrModel">模型</span>
+                <input class="mono" id="asrModel" type="text" spellcheck="false" autocapitalize="off"
+                  placeholder="FunAudioLLM/SenseVoiceSmall">
+              </label>
+            </div>
+            <div class="asr-actions">
+              <button class="btn btn-primary btn-sm" id="asrSave" type="button">保存并测试</button>
+              <button class="btn btn-ghost btn-sm" id="asrClear" type="button">清除本机 Key</button>
+              <span class="asr-hint" id="asrHint"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 进度 ============ -->
+  <section class="stage-band" id="stageBand" hidden>
+    <div class="container">
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-title"><span class="spinner" aria-hidden="true"></span><span id="stageText">正在处理…</span></div>
+          <span class="stage-pct" id="stagePct">0%</span>
+        </div>
+        <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="barEl">
+          <div class="bar-fill" id="barFill"></div>
+        </div>
+        <div class="steps" id="stepsEl"></div>
+        <div class="preview-strip" id="previewStrip" hidden>
+          <img id="pvCover" alt="视频封面" referrerpolicy="no-referrer">
+          <div>
+            <div class="pv-title" id="pvTitle"></div>
+            <div class="pv-sub" id="pvSub"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 错误 ============ -->
+  <section class="stage-band" id="errorBand" hidden>
+    <div class="container">
+      <div class="alert" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/>
+        </svg>
+        <div>
+          <h3>没能完成提取</h3>
+          <p id="errorText"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 结果 ============ -->
+  <section class="result-section" id="resultSection" hidden>
+    <div class="container">
+      <div class="result-card">
+        <div class="result-head">
+          <img class="result-cover" id="rCover" alt="视频封面" referrerpolicy="no-referrer">
+          <div class="result-meta">
+            <h2 id="rTitle">—</h2>
+            <div class="meta-line">
+              <span id="rAuthor"></span>
+              <span id="rDuration"></span>
+              <span id="rCount"></span>
+              <span class="badge-demo" id="rDemoBadge" hidden>演示数据</span>
+            </div>
+          </div>
+          <a class="btn btn-ghost btn-sm" id="rLink" target="_blank" rel="noopener">原视频 ↗</a>
+        </div>
+
+        <div class="tabs" role="tablist">
+          <button class="tab active" role="tab" data-view="timed" aria-selected="true">带时间码</button>
+          <button class="tab" role="tab" data-view="plain" aria-selected="false">纯文本</button>
+          <button class="tab" role="tab" data-view="srt" aria-selected="false">SRT 字幕</button>
+        </div>
+
+        <div class="toolbar">
+          <button class="btn btn-ghost btn-sm" id="copyBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>
+            </svg>
+            复制全文
+          </button>
+          <button class="btn btn-ghost btn-sm" id="dlTxt">下载 .txt</button>
+          <button class="btn btn-ghost btn-sm" id="dlSrt">下载 .srt</button>
+          <span class="spacer"></span>
+          <span class="count-note" id="rStat"></span>
+        </div>
+
+        <div class="result-body">
+          <div class="view active" id="viewTimed" role="tabpanel"></div>
+          <pre class="view plain" id="viewPlain"></pre>
+          <pre class="view code" id="viewSrt"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 使用步骤 ============ -->
+  <section class="section" id="how">
+    <div class="container">
+      <div class="section-head">
+        <div class="eyebrow">How it works</div>
+        <h2>四步拿到完整文案</h2>
+        <p>不需要安装软件，不需要登录任何平台账号。语音识别默认走站点服务，也能换成你自己的 Key。</p>
+      </div>
+      <div class="steps-flow">
+        <div class="flow-item">
+          <div class="flow-num">1</div>
+          <h3>复制分享链接</h3>
+          <p>在 App 里点「分享 → 复制链接」，把整段口令粘贴到输入框即可。抖音、快手、B站 的短链和长链都认。</p>
+        </div>
+        <div class="flow-item">
+          <div class="flow-num">2</div>
+          <h3>选择识别方式</h3>
+          <p>默认用站点自带的识别服务，什么都不用填；想用自己的额度，就在「语音识别设置」里换成自己的 Key。</p>
+        </div>
+        <div class="flow-item">
+          <div class="flow-num">3</div>
+          <h3>服务端自动处理</h3>
+          <p>识别平台后按各家接口取作品信息，能取纯音轨就只下音轨，再抽离、切片、提交转写。</p>
+        </div>
+        <div class="flow-item">
+          <div class="flow-num">4</div>
+          <h3>拿走你的文案</h3>
+          <p>按句分段、带时间码展示。可一键复制，也能导出 TXT 文本或 SRT 字幕文件。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 特性 ============ -->
+  <section class="section section-soft" id="features">
+    <div class="container">
+      <div class="section-head">
+        <div class="eyebrow">Features</div>
+        <h2>为「拿文案」这件事设计的细节</h2>
+      </div>
+      <div class="grid-auto">
+        <div class="card">
+          <div class="icon-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+          <h3>中文识别准确</h3>
+          <p>采用 SenseVoice 中文语音模型，对口播、带货话术、知识分享这类内容识别稳定，自带标点。</p>
+        </div>
+        <div class="card">
+          <div class="icon-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+          <h3>带时间码分段</h3>
+          <p>按句切分并标注起止时间，方便对照原片定位，也方便直接做剪辑脚本和字幕。</p>
+        </div>
+        <div class="card">
+          <div class="icon-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg></div>
+          <h3>多格式导出</h3>
+          <p>纯文本、带时间码文本、SRT 字幕三种视图随意切换，复制或下载都只要一次点击。</p>
+        </div>
+        <div class="card">
+          <div class="icon-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg></div>
+          <h3>多平台通用</h3>
+          <p>抖音、快手、哔哩哔哩走本站自己的解析，其余站点由通用引擎兜底；能取到纯音轨时只下音轨，省流量也更快。</p>
+        </div>
+        <div class="card">
+          <div class="icon-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11l-1 8.5L19 10.5h-6.5z"/></svg></div>
+          <h3>轻量免安装</h3>
+          <p>网页即用，手机电脑都适配。任务在云端排队执行，关掉页面也不影响已跑完的历史记录。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FAQ ============ -->
+  <section class="section" id="faq">
+    <div class="container">
+      <div class="section-head">
+        <div class="eyebrow">FAQ</div>
+        <h2>常见问题</h2>
+      </div>
+      <div class="faq-list">
+        <details class="faq" open>
+          <summary>语音识别的额度算谁的？</summary>
+          <div class="faq-body">
+            两种方式随便选。<b>站点服务</b>：直接花本站的公共额度，你不用填任何东西，但为防单点刷量，同一台设备每小时有次数上限、全站每天也有限额，用完就得等次日。<b>你自己的 Key</b>：额度算你的，本站不接触、不保管。
+            自己填的 Key 只保存在本机浏览器（localStorage）里；提交任务时随请求发给本站服务端，仅用于当次调用识别接口，用完即弃，不写入磁盘、不记录日志。
+            建议使用专门的、额度有限的 Key。换设备或清除浏览器数据后需要重新填写。
+          </div>
+        </details>
+        <details class="faq">
+          <summary>自己的 Key 要填什么？</summary>
+          <div class="faq-body">
+            默认对接<a href="https://cloud.siliconflow.cn" target="_blank" rel="noopener">硅基流动</a>：注册并实名后，在「API 密钥」里新建一个，形如 <span class="mono-inline">sk-xxxxxxxx</span>。
+            模型默认 <span class="mono-inline">FunAudioLLM/SenseVoiceSmall</span>，目前免费。想用别家服务，点开面板里的「高级设置」改接口地址和模型即可（需为 https 的公开域名）。
+            填完点「保存并测试」，页面会真的调一次接口，密钥不对会当场报错。
+          </div>
+        </details>
+        <details class="faq">
+          <summary>支持哪些平台和链接形式？</summary>
+          <div class="faq-body">
+            <b>原生解析（最稳，已实测）</b>：
+            <ul>
+              <li>抖音 —— App 分享出来的整段口令（形如「7.68 复制打开抖音…https://v.douyin.com/xxxx/」）、短链 v.douyin.com、网页端 douyin.com/video/数字</li>
+              <li>快手 —— App 分享的短链 v.kuaishou.com/xxxxxx；<b>网页版 www.kuaishou.com/short-video/… 这种短 ID 解析不了</b>，请改用 App 分享</li>
+              <li>哔哩哔哩 —— bilibili.com/video/BV… 或 av…、短链 b23.tv/xxxx；多分 P 视频只取第一个分 P（可自己在链接后加 ?p=N 指定）</li>
+            </ul>
+            <b>通用引擎</b>：其余站点交给 yt-dlp 兜底，能覆盖一千多个网站，但能否成功取决于站点策略与服务器网络——
+            境外站（YouTube、X 等）在国内服务器上通常连不上。
+            <br>直接粘贴整段分享文字即可，程序会自动识别其中的链接。
+          </div>
+        </details>
+        <details class="faq">
+          <summary>为什么不支持小红书、微博、视频号？</summary>
+          <div class="faq-body">
+            这三家的视频地址都必须带着登录态 Cookie 才能取到，而本工具<b>不保存任何账号凭据</b>——为了一个转写功能让你交出账号登录信息，不划算。另外它们也没有公开的分享链接格式可以走。
+            你可以在自己的服务器上部署一份，再挂一个浏览器导出的 cookies.txt 给通用引擎（环境变量 <span class="mono-inline">YTDLP_COOKIES</span>），就能覆盖更多站点。
+          </div>
+        </details>
+        <details class="faq">
+          <summary>视频多长才算「太大」？</summary>
+          <div class="faq-body">
+            单个视频<b>最长 30 分钟、最大 300MB</b>（都可在服务端用 <span class="mono-inline">MAX_VIDEO_SECONDS</span> / <span class="mono-inline">MAX_VIDEO_MB</span> 调整）。
+            超过就直接拒绝，不会白跑一趟。同理，<b>直播、电影、剧集、合集、番剧、付费内容都不处理</b>——这类内容动辄几小时，
+            转写出来也不是你要的「口播文案」。要处理长内容，请先自行剪出需要的片段。
+          </div>
+        </details>
+        <details class="faq">
+          <summary>为什么有的视频提取失败？</summary>
+          <div class="faq-body">常见原因有四类：作品已被作者删除或设为私密；作品是图文而非视频（没有语音可转写）；链接形态不被支持（例如快手网页版短 ID）；短时间内请求过于频繁触发平台风控。稍等一两分钟换一个链接重试通常就能成功。</div>
+        </details>
+        <details class="faq">
+          <summary>提取一条大概要多久？</summary>
+          <div class="faq-body">主要取决于视频时长和网络。1 分钟左右的视频通常在 10～25 秒内完成；音频会按每 30 秒切片并发识别，因此时长的增长基本是线性的。页面上的进度条会显示当前所处的阶段。</div>
+        </details>
+        <details class="faq">
+          <summary>文案会保存到服务器吗？</summary>
+          <div class="faq-body">不会。视频、音频等中间文件处理完立即删除，识别结果只保留在内存里供本次页面读取，任务记录 30 分钟后自动过期。历史记录也只存在你浏览器的本地存储中。</div>
+        </details>
+        <details class="faq">
+          <summary>可以用于商用的二次创作吗？</summary>
+          <div class="faq-body">本工具只做技术层面的语音转写。文案内容的著作权属于原作者，用于转载、改编或商业用途前请自行取得授权并遵守平台规则。</div>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <a class="brand" href="#top">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M8 6h8M8 12h8M8 18h5"/></svg>
+          </span>
+          <span>文案提取器</span>
+        </a>
+        <p>把视频里的口播内容变成可检索、可编辑的文字。抖音、快手、哔哩哔哩原生解析，其余站点由通用引擎兜底。</p>
+        <a class="footer-home" href="https://www.zehvo.com/">← 返回 zehvo.com 首页</a>
+      </div>
+      <div class="footer-cols">
+        <div class="footer-col">
+          <h4>产品</h4>
+          <a href="#how">使用步骤</a>
+          <a href="#features">功能特性</a>
+          <a href="#faq">常见问题</a>
+        </div>
+        <div class="footer-col">
+          <h4>支持平台</h4>
+          <a href="#top">抖音 · 快手 · 哔哩哔哩</a>
+          <a href="#top">其余站点走通用引擎</a>
+          <a href="#faq">小红书 / 微博 / 视频号 暂不支持</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© <span id="year"></span> 文案提取器 · 仅供学习与个人研究使用</span>
+      <span>请尊重原作者版权，勿将提取内容直接用于商业传播</span>
+    </div>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+  /** 只用于把服务端下发的纯文本（平台名）拼进 HTML，避免名字里有标签字符时出问题 */
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  var STAGE_LABELS = ['解析链接', '获取媒体', '提取音频', '语音识别'];
+  var LS_KEY = 'dytx.history.v1';
+  var LS_ASR = 'dytx.asr.v1';
+  var ASR_FALLBACK = { baseUrl: 'https://api.siliconflow.cn/v1', model: 'FunAudioLLM/SenseVoiceSmall' };
+  /* 服务端 /api/health 的探测结果：站点是否自带可用密钥 */
+  var serverAsr = { configured: false, baseUrl: ASR_FALLBACK.baseUrl, model: ASR_FALLBACK.model };
+  var serverAsrKnown = false;
+  /* 站点公共额度的最新快照（来自 /api/health 与提交失败时的响应） */
+  var siteQuota = null;
+  var current = null;
+  var pollTimer = null;
+
+  /* 支持部署在根路径或任意子路径（如 /douyin/）下 */
+  var BASE = (function () {
+    var p = location.pathname;
+    return p.endsWith('/') ? p : p.replace(/[^/]*$/, '');
+  })();
+  function api(path) { return BASE + 'api/' + path; }
+
+  /* ---------- 通用 ---------- */
+  function toast(msg) {
+    var el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.classList.remove('show'); }, 2000);
+  }
+
+  function fmtTime(sec) {
+    var s = Math.max(0, Math.floor(sec || 0));
+    var m = Math.floor(s / 60);
+    var ss = s % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (ss < 10 ? '0' : '') + ss;
+  }
+
+  function fmtDuration(sec) {
+    if (!sec) return '时长未知';
+    var m = Math.floor(sec / 60), s = sec % 60;
+    return m > 0 ? m + ' 分 ' + s + ' 秒' : s + ' 秒';
+  }
+
+  function copyText(text, tip) {
+    var done = function () { toast(tip || '已复制'); };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done).catch(fallback);
+    } else { fallback(); }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) { toast('复制失败，请手动选择'); }
+      document.body.removeChild(ta);
+    }
+  }
+
+  function download(filename, content, mime) {
+    var blob = new Blob(['\ufeff' + content], { type: (mime || 'text/plain') + ';charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+
+  function safeName(s) {
+    return String(s || 'transcript').replace(/[\\/:*?"<>|\n\r]+/g, '_').slice(0, 40);
+  }
+
+  /* ---------- 步骤条 ---------- */
+  function renderSteps(activeKey) {
+    var order = ['parse', 'download', 'audio', 'asr'];
+    var idx = order.indexOf(activeKey);
+    $('stepsEl').innerHTML = order.map(function (key, i) {
+      var cls = 'step';
+      if (idx === -1) cls += ' done';
+      else if (i < idx) cls += ' done';
+      else if (i === idx) cls += ' active';
+      var mark = (idx === -1 || i < idx)
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 7"/></svg>'
+        : String(i + 1);
+      return '<div class="' + cls + '"><span class="mark">' + mark + '</span>' + STAGE_LABELS[i] + '</div>';
+    }).join('');
+  }
+
+  function setProgress(pct, text, stageKey) {
+    pct = Math.max(0, Math.min(100, Math.round(pct || 0)));
+    $('barFill').style.width = pct + '%';
+    $('barEl').setAttribute('aria-valuenow', String(pct));
+    $('stagePct').textContent = pct + '%';
+    if (text) $('stageText').textContent = text;
+    if (stageKey) renderSteps(stageKey);
+  }
+
+  /* ---------- 语音识别设置（站点服务 / 自带 Key） ---------- */
+  function readAsr() {
+    try {
+      var o = JSON.parse(localStorage.getItem(LS_ASR) || '{}') || {};
+      // mode: '' = 自动（站点有密钥就用站点） | 'site' = 强制站点服务 | 'own' = 强制自带 Key
+      var mode = String(o.mode || '');
+      if (mode !== 'site' && mode !== 'own') mode = '';
+      return {
+        mode: mode,
+        apiKey: String(o.apiKey || ''),
+        baseUrl: String(o.baseUrl || ''),
+        model: String(o.model || '')
+      };
+    } catch (e) { return { mode: '', apiKey: '', baseUrl: '', model: '' }; }
+  }
+
+  function writeAsr(o) {
+    try { localStorage.setItem(LS_ASR, JSON.stringify(o)); } catch (e) { /* 隐私模式下可能写不进去 */ }
+  }
+
+  function hasLocalKey() { return !!readAsr().apiKey; }
+
+  /** 实际生效的调用方式：站点没配密钥时，'site' 自动落回 'own' */
+  function effectiveMode() {
+    var m = readAsr().mode;
+    if (m === 'own') return 'own';
+    if (m === 'site') return serverAsr.configured ? 'site' : 'own';
+    return serverAsr.configured ? 'site' : 'own';
+  }
+
+  /** 站点服务模式不带任何凭据（服务端用自己的密钥）；自带 Key 模式才把密钥放进请求 */
+  function asrPayload() {
+    if (effectiveMode() === 'site') return {};
+    var a = readAsr();
+    if (!a.apiKey) return {};
+    var p = { apiKey: a.apiKey };
+    if (a.baseUrl) p.baseUrl = a.baseUrl;
+    if (a.model) p.model = a.model;
+    return p;
+  }
+
+  /** 当前配置是否足以提交任务 */
+  function asrReady() {
+    return effectiveMode() === 'site' ? serverAsr.configured : hasLocalKey();
+  }
+
+  function refreshAsrUI() {
+    var mode = effectiveMode();
+
+    $('modeSite').disabled = !serverAsr.configured;
+    $('modeSite').setAttribute('aria-checked', String(mode === 'site'));
+    $('modeOwn').setAttribute('aria-checked', String(mode === 'own'));
+    $('siteBlock').hidden = mode !== 'site';
+    $('ownBlock').hidden = mode !== 'own';
+
+    var ok = asrReady();
+    var label = mode === 'site' ? '站点服务' : (hasLocalKey() ? '本机已保存' : '未设置');
+    $('asrDot').className = 'asr-dot' + (ok ? ' ok' : ' warn');
+    var badge = $('asrBadge');
+    badge.className = 'asr-badge' + (ok ? ' ok' : ' warn');
+    badge.textContent = label;
+
+    renderSiteQuota();
+  }
+
+  /** 渲染站点额度（数据来自 /api/health 与提交失败时的响应） */
+  function renderSiteQuota(q) {
+    if (q) siteQuota = q;
+    var el = $('siteQuota');
+    if (!el) return;
+    var card = $('siteCard');
+    if (!serverAsr.configured) {
+      card.classList.add('warn');
+      $('siteTitle').textContent = '站点当前没有配置公共密钥';
+      el.textContent = '请切到「使用我自己的 Key」并填入你的 API Key。';
+      return;
+    }
+    if (!siteQuota) {
+      card.classList.remove('warn');
+      $('siteTitle').textContent = '站点已提供识别服务 · ' + (serverAsr.model || ASR_FALLBACK.model);
+      el.textContent = '正在读取可用额度…';
+      return;
+    }
+    var low = siteQuota.perIpRemaining <= 0 || siteQuota.dailyRemaining <= 0;
+    card.classList.toggle('warn', low);
+    $('siteTitle').textContent = low
+      ? '公共额度暂时用完了'
+      : '站点已提供识别服务 · ' + (serverAsr.model || ASR_FALLBACK.model);
+    el.textContent = low
+      ? '本机本小时剩余 ' + siteQuota.perIpRemaining + ' 次，全站今日剩余 ' + siteQuota.dailyRemaining +
+        ' 次（约 ' + Math.max(1, Math.round(siteQuota.resetInMinutes / 60)) + ' 小时后恢复）。换成你自己的 Key 可以立刻继续用。'
+      : '本机本小时还可提交 ' + siteQuota.perIpRemaining + ' 次（上限 ' + siteQuota.perIpHourlyLimit + ' 次/小时）· 全站今日剩余 ' +
+        siteQuota.dailyRemaining + ' 次（上限 ' + siteQuota.dailyLimit + ' 次/天）。';
+  }
+
+  function setAsrPanel(open, focus) {
+    $('asrBody').hidden = !open;
+    $('asrPanel').classList.toggle('open', open);
+    $('asrToggle').setAttribute('aria-expanded', String(open));
+    if (open) {
+      var a = readAsr();
+      if (!$('asrKey').value) $('asrKey').value = a.apiKey || '';
+      if (!$('asrBase').value) $('asrBase').value = a.baseUrl || serverAsr.baseUrl || ASR_FALLBACK.baseUrl;
+      if (!$('asrModel').value) $('asrModel').value = a.model || serverAsr.model || ASR_FALLBACK.model;
+      if (focus && effectiveMode() === 'own') $('asrKey').focus();
+    }
+  }
+
+  function asrHint(text, kind) {
+    var el = $('asrHint');
+    el.textContent = text;
+    el.className = 'asr-hint' + (kind ? ' ' + kind : '');
+  }
+
+  /** 切到指定调用方式 */
+  function setMode(mode) {
+    var a = readAsr();
+    a.mode = mode;
+    writeAsr(a);
+    refreshAsrUI();
+    setAsrPanel(true, false);
+    if (mode === 'own') { $('asrKey').focus(); }
+    else { asrHint('', ''); }
+  }
+
+  /** 需要用户自己填 Key 时：切到「自带 Key」模式、展开面板并把视线引过去 */
+  function promptForKey(message) {
+    if (readAsr().mode !== 'own') setMode('own');
+    setAsrPanel(true, true);
+    $('asrPanel').classList.add('attn');
+    $('asrPanel').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (message) toast(message);
+  }
+
+  function saveAndTestAsr() {
+    var apiKey = $('asrKey').value.trim();
+    var baseUrl = $('asrBase').value.trim() || serverAsr.baseUrl || ASR_FALLBACK.baseUrl;
+    var model = $('asrModel').value.trim() || serverAsr.model || ASR_FALLBACK.model;
+
+    if (!apiKey) {
+      asrHint('请先填入 API Key', 'err');
+      $('asrKey').focus();
+      return;
+    }
+
+    // 先落盘，再拿这份配置去真实调一次接口
+    writeAsr({ mode: 'own', apiKey: apiKey, baseUrl: baseUrl, model: model });
+    refreshAsrUI();
+    $('asrPanel').classList.remove('attn');
+    asrHint('正在测试密钥…', '');
+    $('asrSave').disabled = true;
+
+    fetch(api('asr/test'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asr: { apiKey: apiKey, baseUrl: baseUrl, model: model } })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok) asrHint('✓ 密钥可用 · ' + j.model, 'ok');
+        else asrHint('✗ ' + ((j && j.error) || '测试失败'), 'err');
+      })
+      .catch(function () { asrHint('✗ 测试请求没发出去，检查一下网络', 'err'); })
+      .then(function () { $('asrSave').disabled = false; });
+  }
+
+  /** 测一次站点自己的识别服务（前端不带任何凭据） */
+  function testSiteAsr() {
+    var hint = $('siteHint');
+    hint.className = 'asr-hint';
+    hint.textContent = '正在测试站点服务…';
+    $('siteTest').disabled = true;
+    fetch(api('asr/test'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asr: {} })
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j || {} }; }); })
+      .then(function (res) {
+        var j = res.body;
+        if (j.siteQuota) { renderSiteQuota(j.siteQuota); }
+        if (res.ok && j.ok) {
+          hint.className = 'asr-hint ok';
+          hint.textContent = '✓ 站点服务可用 · ' + j.model;
+        } else {
+          hint.className = 'asr-hint err';
+          hint.textContent = '✗ ' + (j.error || '测试失败');
+          if (j.needAsrKey) promptForKey(j.error || '站点服务不可用，请换成你自己的 Key');
+        }
+      })
+      .catch(function () {
+        hint.className = 'asr-hint err';
+        hint.textContent = '✗ 测试请求没发出去，检查一下网络';
+      })
+      .then(function () { $('siteTest').disabled = false; });
+  }
+
+  function clearAsr() {
+    // 清掉凭据并回到「自动」：站点有公共额度就切回站点服务，没有就留在自带 Key
+    writeAsr({ mode: '', apiKey: '', baseUrl: '', model: '' });
+    $('asrKey').value = '';
+    $('asrBase').value = '';
+    $('asrModel').value = '';
+    $('asrEye').textContent = '显示';
+    $('asrKey').type = 'password';
+    refreshAsrUI();
+    asrHint('已清除本机保存的密钥' + (serverAsr.configured ? '，已切回站点服务' : ''), '');
+  }
+
+  /** 把服务端允许的接口域名提示出来，换服务商时不用猜 */
+  function renderHostsHelp(hosts) {
+    var el = $('asrHostsHelp');
+    if (!el) return;
+    if (!hosts || !hosts.length) { el.textContent = ''; return; }
+    el.textContent = '服务端只放行这些域名：' + hosts.join('、') + '。需要别的请让管理员用 ASR_EXTRA_HOSTS 追加。';
+  }
+
+  /* ---------- 提交 ---------- */
+  function showOnly(id) {
+    ['stageBand', 'errorBand', 'resultSection'].forEach(function (k) {
+      $(k).hidden = k !== id;
+    });
+  }
+
+  function submit() {
+    var value = $('linkInput').value.trim();
+    if (!value) { toast('先粘贴一个视频链接'); $('linkInput').focus(); return; }
+
+    // 当前方式下拿不到可用凭据（站点没配 + 本机也没填）—— 直接把人引到设置面板，省一次白跑
+    if (serverAsrKnown && !asrReady()) {
+      promptForKey('先填一下语音识别 Key');
+      return;
+    }
+
+    stopPolling();
+    $('submitBtn').disabled = true;
+    $('errorBand').hidden = true;
+    $('resultSection').hidden = true;
+    $('previewStrip').hidden = true;
+    showOnly('stageBand');
+    setProgress(4, '正在提交…', 'parse');
+    $('stageBand').scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    var usingSite = effectiveMode() === 'site';
+
+    fetch(api('extract'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: value, asr: asrPayload() })
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j || {} }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          if (res.body.siteQuota) renderSiteQuota(res.body.siteQuota);
+          if (res.body.needAsrKey) promptForKey(res.body.error || '先填一下语音识别 Key');
+          throw new Error(res.body.error || '提交失败');
+        }
+        poll(res.body.jobId);
+        // 站点服务扣的是公共额度：能用响应里带回的数值就直接刷新，否则补一次 health
+        if (res.body.siteQuota) renderSiteQuota(res.body.siteQuota);
+        else if (usingSite) setTimeout(refreshHealth, 800);
+      })
+      .catch(function (err) {
+        fail(err.message || '网络异常，请稍后重试');
+      });
+  }
+
+  function poll(jobId) {
+    var tick = function () {
+      fetch(api('job/' + jobId))
+        .then(function (r) { return r.json(); })
+        .then(function (job) {
+          // 失败有可能是「站点额度已退还」的，跟着服务端给的数值刷新额度徽标
+          if (job.siteQuota) { renderSiteQuota(job.siteQuota); }
+          if (job.error && job.status === 'error') { fail(job.message || job.error); return; }
+          if (job.preview && $('previewStrip').hidden) {
+            $('pvCover').src = job.preview.cover || '';
+            $('pvTitle').textContent = job.preview.desc || '（无标题）';
+            $('pvSub').textContent = [
+              job.preview.source || '',
+              job.preview.author,
+              job.preview.duration ? fmtDuration(job.preview.duration) : ''
+            ].filter(Boolean).join(' · ');
+            $('previewStrip').hidden = false;
+          }
+          setProgress(job.progress, job.message, job.stage);
+          if (job.status === 'done') { stopPolling(); succeed(job.result); return; }
+          pollTimer = setTimeout(tick, 1200);
+        })
+        .catch(function () {
+          pollTimer = setTimeout(tick, 2500);
+        });
+    };
+    tick();
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    $('submitBtn').disabled = false;
+  }
+
+  function fail(msg) {
+    stopPolling();
+    showOnly('errorBand');
+    $('errorText').textContent = msg;
+  }
+
+  /* ---------- 渲染结果 ---------- */
+  function renderResult(data, isDemo) {
+    current = { data: data, isDemo: !!isDemo };
+    var v = data.video || {};
+
+    $('rCover').src = v.cover || '';
+    $('rCover').style.display = v.cover ? '' : 'none';
+    $('rTitle').textContent = v.desc || '（作者未填写标题）';
+    $('rAuthor').innerHTML = v.author ? '@<b></b>' : '';
+    if (v.author) $('rAuthor').querySelector('b').textContent = v.author;
+    $('rDuration').textContent = fmtDuration(v.duration);
+    $('rCount').textContent = (data.stats && data.stats.charCount ? data.stats.charCount + ' 字' : '');
+    $('rDemoBadge').hidden = !isDemo;
+
+    var webUrl = v.webUrl || v.shareUrl || '';
+    var link = $('rLink');
+    if (webUrl) { link.href = webUrl; link.style.display = ''; }
+    else { link.style.display = 'none'; }
+
+    var box = $('viewTimed');
+    box.innerHTML = '';
+    (data.paragraphs || []).forEach(function (p) {
+      var row = document.createElement('div');
+      row.className = 'para';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tc';
+      btn.textContent = fmtTime(p.start);
+      btn.title = '复制这一句';
+      btn.addEventListener('click', function () { copyText(p.text, '已复制该句'); });
+      var txt = document.createElement('p');
+      txt.textContent = p.text;
+      row.appendChild(btn);
+      row.appendChild(txt);
+      box.appendChild(row);
+    });
+
+    $('viewPlain').textContent = data.text || '';
+    $('viewSrt').textContent = data.srt || '';
+
+    var st = data.stats || {};
+    $('rStat').textContent = [
+      v.sourceLabel || '',
+      st.paragraphCount ? st.paragraphCount + ' 段' : '',
+      st.asrModel || '',
+      st.keySource === 'server' ? '站点额度' : (st.keySource === 'client' ? '本机 Key' : ''),
+      st.elapsedMs ? (st.elapsedMs / 1000).toFixed(1) + 's' : ''
+    ].filter(Boolean).join(' · ');
+
+    showOnly('resultSection');
+    $('resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function succeed(data) {
+    stopPolling();
+    renderResult(data, false);
+    saveHistory($('linkInput').value.trim());
+  }
+
+  /* ---------- 历史 ---------- */
+  function readHistory() {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch (e) { return []; }
+  }
+
+  function saveHistory(text) {
+    var url = (text.match(/https?:\/\/\S+/) || [''])[0];
+    if (!url) return;
+    var list = readHistory().filter(function (it) { return it.url !== url; });
+    list.unshift({ url: url, at: Date.now() });
+    localStorage.setItem(LS_KEY, JSON.stringify(list.slice(0, 8)));
+    renderHistory();
+  }
+
+  function renderHistory() {
+    var list = readHistory();
+    var row = $('historyRow');
+    if (!list.length) { row.hidden = true; return; }
+    row.hidden = false;
+    row.innerHTML = '<span>最近：</span>';
+    list.forEach(function (it) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = it.url.replace(/^https?:\/\//, '');
+      b.title = it.url;
+      b.addEventListener('click', function () {
+        $('linkInput').value = it.url;
+        submit();
+      });
+      row.appendChild(b);
+    });
+  }
+
+  /* ---------- 演示数据 ---------- */
+  function demoData() {
+    var text =
+      '很多人做短视频，卡在第一步：不知道拍什么。其实选题不用凭空想，去翻你自己的评论区就行。' +
+      '观众反复问的那几个问题，就是最稳的选题，因为需求已经被验证过了。' +
+      '第二个方法是拆同行，把同类目播放量最高的二十条视频找出来，看它们的开头三秒在说什么。' +
+      '你会发现爆款的开头几乎都是三种套路：制造反差、给出利益、抛出悬念。' +
+      '记住一句话，观众不关心你是谁，只关心这条视频能帮他解决什么。' +
+      '把这一条想清楚，你的完播率至少能提升一倍。';
+    var raw = [
+      '很多人做短视频，卡在第一步：不知道拍什么。',
+      '其实选题不用凭空想，去翻你自己的评论区就行。',
+      '观众反复问的那几个问题，就是最稳的选题，因为需求已经被验证过了。',
+      '第二个方法是拆同行，把同类目播放量最高的二十条视频找出来，看它们的开头三秒在说什么。',
+      '你会发现爆款的开头几乎都是三种套路：制造反差、给出利益、抛出悬念。',
+      '记住一句话，观众不关心你是谁，只关心这条视频能帮他解决什么。',
+      '把这一条想清楚，你的完播率至少能提升一倍。'
+    ];
+    var paragraphs = [], t = 0;
+    raw.forEach(function (s) {
+      var dur = Math.max(2.4, s.replace(/[^\u4e00-\u9fa5]/g, '').length * 0.26);
+      paragraphs.push({ start: t, end: t + dur, text: s });
+      t += dur;
+    });
+
+    var lines = paragraphs.map(function (p, i) {
+      var tc = function (sec) {
+        var pad = function (n, w) { return String(Math.floor(n)).padStart(w || 2, '0'); };
+        return pad(sec / 3600) + ':' + pad((sec % 3600) / 60) + ':' + pad(sec % 60) + ',' + pad(Math.round((sec % 1) * 1000), 3);
+      };
+      return (i + 1) + '\n' + tc(p.start) + ' --> ' + tc(p.end) + '\n' + p.text + '\n';
+    }).join('\n');
+
+    return {
+      video: {
+        desc: '【示例】短视频选题的三个笨办法，学会不再为内容发愁',
+        author: '文案提取器',
+        cover: '',
+        duration: Math.round(t),
+        sourceLabel: '示例数据',
+        webUrl: ''
+      },
+      paragraphs: paragraphs,
+      text: paragraphs.map(function (p) { return p.text; }).join('\n\n'),
+      srt: lines,
+      stats: {
+        charCount: text.replace(/\s/g, '').length,
+        paragraphCount: paragraphs.length,
+        elapsedMs: 0,
+        asrModel: '示例数据'
+      }
+    };
+  }
+
+  /* ---------- 设置面板交互 ---------- */
+  $('asrToggle').addEventListener('click', function () {
+    setAsrPanel($('asrBody').hidden, false);
+  });
+
+  $('asrAdvToggle').addEventListener('click', function () {
+    var adv = $('asrAdv');
+    adv.hidden = !adv.hidden;
+    this.textContent = adv.hidden ? '高级设置（接口地址 / 模型）' : '收起高级设置';
+  });
+
+  $('asrEye').addEventListener('click', function () {
+    var input = $('asrKey');
+    var show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    this.textContent = show ? '隐藏' : '显示';
+  });
+
+  $('asrSave').addEventListener('click', saveAndTestAsr);
+  $('asrClear').addEventListener('click', clearAsr);
+  $('siteTest').addEventListener('click', testSiteAsr);
+  $('modeSite').addEventListener('click', function () { if (!this.disabled) setMode('site'); });
+  $('modeOwn').addEventListener('click', function () { setMode('own'); });
+
+  $('asrKey').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); saveAndTestAsr(); }
+  });
+
+  /** 平台清单与限制由服务端下发，前端不再硬编码一份（加平台只改 server/platforms.js） */
+  function renderPlatforms(platforms, lim) {
+    var wrap = $('platformChips');
+    if (wrap && platforms && platforms.length) {
+      var html = platforms.map(function (p) {
+        return '<span class="plat-chip solid">' + esc(p.label) + '<small>'
+          + (p.engine === 'native' ? '原生' : '通用引擎') + '</small></span>';
+      }).join('');
+      html += '<span class="plat-chip">其他站点<small>通用引擎</small></span>';
+      wrap.innerHTML = html;
+    }
+    if (lim && lim.maxMinutes) {
+      $('platformsLimit').textContent =
+        '单个视频最长 ' + lim.maxMinutes + ' 分钟、最大 ' + lim.maxMb + 'MB';
+    }
+  }
+
+  /** 探测站点是否有自带密钥与剩余公共额度：有的话访客什么都不用填 */
+  function refreshHealth() {
+    return fetch(api('health'))
+      .then(function (r) { return r.json(); })
+      .then(function (h) {
+        serverAsrKnown = true;
+        serverAsr = {
+          configured: !!h.asrServerConfigured,
+          baseUrl: h.asrBaseUrl || ASR_FALLBACK.baseUrl,
+          model: h.asrModel || ASR_FALLBACK.model
+        };
+        siteQuota = h.siteQuota || null;
+        renderHostsHelp(h.asrAllowedHosts);
+        renderPlatforms(h.platforms, h.limits);
+        refreshAsrUI();
+      })
+      .catch(function () { serverAsrKnown = true; });
+  }
+
+  refreshHealth();
+
+  /* ---------- 事件绑定 ---------- */
+  $('composer').addEventListener('submit', function (e) { e.preventDefault(); submit(); });
+
+  $('linkInput').addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submit(); }
+  });
+
+  $('demoBtn').addEventListener('click', function () {
+    stopPolling();
+    renderResult(demoData(), true);
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (tab) {
+    tab.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (t) {
+        t.classList.toggle('active', t === tab);
+        t.setAttribute('aria-selected', String(t === tab));
+      });
+      var map = { timed: 'viewTimed', plain: 'viewPlain', srt: 'viewSrt' };
+      Object.keys(map).forEach(function (k) {
+        $(map[k]).classList.toggle('active', k === tab.dataset.view);
+      });
+    });
+  });
+
+  $('copyBtn').addEventListener('click', function () {
+    if (!current) return;
+    copyText(current.data.text, '全文已复制');
+  });
+
+  $('dlTxt').addEventListener('click', function () {
+    if (!current) return;
+    var name = safeName(current.data.video && current.data.video.desc) + '.txt';
+    download(name, current.data.text, 'text/plain');
+    toast('已下载 TXT');
+  });
+
+  $('dlSrt').addEventListener('click', function () {
+    if (!current) return;
+    var name = safeName(current.data.video && current.data.video.desc) + '.srt';
+    download(name, current.data.srt, 'application/x-subrip');
+    toast('已下载 SRT');
+  });
+
+  window.addEventListener('scroll', function () {
+    $('siteNav').classList.toggle('scrolled', window.scrollY > 8);
+  }, { passive: true });
+
+  $('year').textContent = new Date().getFullYear();
+  renderHistory();
+  refreshAsrUI();
+  renderSteps('parse');
+  setProgress(0, '等待提交…', 'parse');
+})();
+</script>
+</body>
+</html>

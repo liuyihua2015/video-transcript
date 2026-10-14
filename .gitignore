@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.local
+.env.*.local
+.DS_Store
+._*
+*.log
+bin/
+cookies.txt
+*.pem
+
+# 助手的工作笔记：含服务器 IP、SSH 用户、部署细节，不进仓库
+.workbuddy/
