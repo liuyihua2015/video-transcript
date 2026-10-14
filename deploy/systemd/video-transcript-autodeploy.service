@@ -1,0 +1,21 @@
+[Unit]
+Description=视频文案提取服务 · 自动发布（拉取 Git 仓库 + 重启容器）
+Documentation=https://github.com/liuyihua2015/video-transcript
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# 覆盖这些变量即可换仓库 / 换目录（脚本内也有同名默认值）
+Environment=VT_REPO=/opt/video-transcript-src
+Environment=VT_TARGET=/opt/douyin-transcript
+Environment=VT_BRANCH=main
+Environment=VT_CONTAINER=dytx-app
+Environment=VT_HEALTH_URL=http://127.0.0.1:3300/api/health
+ExecStart=/opt/video-transcript-src/deploy/auto-deploy.sh
+# 别和同机其他服务抢资源
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+TimeoutStartSec=300

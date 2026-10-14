@@ -84,7 +84,9 @@ update_ytdlp() {
 
 upload() {
   echo "==> 打包并上传到 $HOST:$REMOTE"
-  tar -czf - -C "$LOCAL" \
+  # COPYFILE_DISABLE=1 是关键：macOS 的 bsdtar 会给带扩展属性的文件自动生成
+  # AppleDouble 条目（解包后变成 163 字节的 ._xxx），--exclude 拦不住这类内部条目。
+  COPYFILE_DISABLE=1 tar -czf - -C "$LOCAL" \
     --exclude='./node_modules' \
     --exclude='./.env' \
     --exclude='./.git' \

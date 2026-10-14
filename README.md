@@ -104,6 +104,31 @@ cp deploy/.env.local.example deploy/.env.local   # 填 DY_HOST / DY_REMOTE（该
 - **改代码必须重启容器**：`server/`、`public/` 是只读挂载，只传文件不重启不会生效
 - **`env_file` 只在创建容器时读取**：改完 `.env` 单独 `docker restart` 拿不到新变量，必须让 compose 重建容器
 
+### 自动发布（可选）
+
+服务器上挂一个 systemd timer，每 5 分钟拉一次本仓库，有变化就重启容器。**整条链路不需要任何密钥** —— 仓库是公开的，服务器只做只读拉取，不落私钥、也不用 GitHub Secrets。
+
+```bash
+# 一次性安装（在服务器上执行）
+sudo git clone https://github.com/liuyihua2015/video-transcript.git /opt/video-transcript-src
+sudo cp /opt/video-transcript-src/deploy/systemd/*.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now video-transcript-autodeploy.timer
+
+# 手动触发一次 / 看日志
+sudo systemctl start video-transcript-autodeploy.service
+journalctl -u video-transcript-autodeploy -n 50
+```
+
+`deploy/auto-deploy.sh` 的流程：拉取 → 比对版本（相同则静默退出）→ `rsync` 同步代码 → **在旧容器里对新代码做语法自检** → 重启容器 → 健康检查 → **失败自动回滚到上一个正常版本**。
+
+几条刻意守住的安全边界：
+
+- 只同步代码，**不覆盖也不删除 `.env` 与 `bin/`**（这两样只存在于服务器）
+- 只重启本容器，**不碰 nginx、不碰同机其他项目的目录**
+- 不重建镜像，因此不会触发 apk 安装那 5–6 分钟
+- ⚠️ 脚本以 root 运行、执行的又是仓库里的代码 —— **仓库的可写权限等于本机的 root 权限**。不要给仓库加协作者，也不要在 `main` 上放开让他人直推
+
 ## 限制与已知问题
 
 - 单视频 **≤ 30 分钟 / 300 MB**，超限在解析阶段就拒绝

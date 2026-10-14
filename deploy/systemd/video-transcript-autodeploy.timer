@@ -1,0 +1,15 @@
+[Unit]
+Description=定时检查视频文案提取服务是否有新版本
+
+[Timer]
+# 开机 3 分钟后先查一次，之后每 5 分钟一次
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+# 错开整点，避免和其他定时任务撞在一起
+RandomizedDelaySec=20s
+Persistent=true
+Unit=video-transcript-autodeploy.service
+
+[Install]
+WantedBy=timers.target
