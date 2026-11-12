@@ -1,13 +1,17 @@
 node_modules/
+# 环境变量：.env 系列一律不入库（含 API 密钥），仅保留 .env.example 模板
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 .DS_Store
 ._*
 *.log
 bin/
 cookies.txt
 *.pem
+
+# 手工备份文件（*.bak-<日期> / *.bak-*）：回溯改用 git 本身，不再备份进工作区
+*.bak-*
 
 # 助手的工作笔记：含服务器 IP、SSH 用户、部署细节，不进仓库
 .workbuddy/
