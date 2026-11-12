@@ -1,5 +1,10 @@
 services:
-  app:
+  # 服务名必须叫 dytx，不能叫 app：本服务与主站共用外部网络 deploy_internal，
+  # 主站 nginx 里还有另一个名为 app 的服务（后改为 shijian-app）。
+  # Docker 内嵌 DNS 解析同名服务会返回【全部】匹配端点，导致约 50% 请求打到错误的容器。
+  # 2026-10-14 线上事故：POST /api/v1/water 间歇 405，即由本服务曾叫 app 引起。
+  # 容器名 dytx-app 不受影响，nginx 反代一直写的是容器名。
+  dytx:
     build: .
     image: douyin-transcript:local
     container_name: dytx-app
