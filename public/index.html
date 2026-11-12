@@ -535,7 +535,13 @@ details.faq .faq-body b{ color:var(--ink); font-weight:650; }
 .footer-legal a{ color:var(--ink-3); text-decoration:none; transition:color .15s; }
 .footer-legal a:hover{ color:var(--brand); }
 .footer-legal .sep{ color:var(--line-strong); user-select:none; }
-.footer-legal .icp{ font-family:var(--font-mono); font-size:.75rem; letter-spacing:.01em; }
+.footer-legal .icp{ display:inline-flex; align-items:center; gap:.35rem; font-family:var(--font-mono); font-size:.75rem; letter-spacing:.01em; }
+.footer-legal .icp svg{ width:16px; height:16px; flex:none; opacity:.8; }
+/* 公安联网备案：官方要求「警徽图标 + 备案号」成对出现，点击跳转 beian.mps.gov.cn 查询页。
+   图标走相对路径 ghs.png（本页由 nginx 反代到 /douyin/，相对路径解析为 /douyin/ghs.png，
+   不依赖 zehvo.com 站点根目录那份拷贝）。 */
+.footer-legal .police{ display:inline-flex; align-items:center; gap:.35rem; font-size:.75rem; letter-spacing:.01em; }
+.footer-legal .police img{ width:16px; height:16px; display:block; flex:none; }
 
 @keyframes fadeUp{ from{ opacity:0; transform:translateY(16px);} to{ opacity:1; transform:none;} }
 @keyframes fade{ from{ opacity:0; } to{ opacity:1; } }
@@ -988,7 +994,12 @@ details.faq .faq-body b{ color:var(--ink); font-weight:650; }
         <span class="sep" aria-hidden="true">·</span>
         <a href="https://www.zehvo.com/legal/terms">用户协议</a>
         <span class="sep" aria-hidden="true">·</span>
-        <a class="icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">苏ICP备2026069257号-2</a>
+        <a class="icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5.5c0 4.6-2.9 7.8-7 9.5-4.1-1.7-7-4.9-7-9.5V6l7-3z"/><path d="M9 11.6l2.1 2.1 4-4"/></svg>苏ICP备2026069257号-2</a>
+        <span class="sep" aria-hidden="true">·</span>
+        <a class="police" href="https://beian.mps.gov.cn/#/query/webSearch?code=32011602010783" target="_blank" rel="noopener noreferrer">
+          <img src="ghs.png" alt="" width="16" height="16">
+          苏公网安备32011602010783号
+        </a>
       </div>
     </div>
   </div>
